@@ -3,23 +3,20 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  build-and-publish:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: family-viewer
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,14 +29,28 @@ jobs:
           cache-dependency-path: family-viewer/package-lock.json
 
       - name: Install dependencies
+        working-directory: family-viewer
         run: npm ci
 
       - name: Build
+        working-directory: family-viewer
         run: npm run build
 
-      - name: Deploy to gh-pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./family-viewer/dist
-          force_orphan: true
+      - name: Prepare docs folder
+        run: |
+          rm -rf docs
+          mkdir -p docs
+          cp -a family-viewer/dist/. docs/
+          touch docs/.nojekyll
+
+      - name: Commit and push docs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if git diff --staged --quiet; then
+            echo "No changes in docs"
+            exit 0
+          fi
+          git commit -m "chore: update docs site build"
+          git push origin HEAD:master
