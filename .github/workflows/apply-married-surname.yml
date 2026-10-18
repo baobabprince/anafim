@@ -1,0 +1,20 @@
+name: Apply married-surname UI
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch sources
+        run: python3 scripts/patch_married_surname.py
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/gedcom.js family-viewer/src/FamilyExperience.jsx family-viewer/src/family.css
+          git status
+          git commit -m "Show married surname prominently for married women in focus card" || exit 0
+          git push
