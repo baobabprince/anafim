@@ -2,18 +2,26 @@
   "name": "ענפים — הסיפור המשפחתי שלכם",
   "short_name": "ענפים",
   "description": "מציג GEDCOM פרטי, נוח ומותאם לנייד",
-  "start_url": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#f8f7f3",
   "theme_color": "#f8f7f3",
   "dir": "rtl",
   "lang": "he",
   "icons": [
     {
-      "src": "/favicon.svg",
+      "src": "./favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ]
 }
