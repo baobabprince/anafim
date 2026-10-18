@@ -1,0 +1,34 @@
+name: Fix married surname style
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove underline
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path('family-viewer/src/family.css')
+          t = p.read_text()
+          old = '.fx-focus-married-surname{display:inline;font-weight:700;color:#6b4a2e;letter-spacing:-.3px;border-bottom:2px solid #d4b896;padding-bottom:1px}'
+          new = '.fx-focus-married-surname{display:inline;font-weight:700;color:#6b4a2e;letter-spacing:-.3px}'
+          if old not in t:
+              if 'border-bottom:2px solid #d4b896' not in t:
+                  print('already fixed')
+              else:
+                  raise SystemExit('pattern not found')
+          else:
+              p.write_text(t.replace(old, new, 1))
+              print('fixed')
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/family.css
+          git commit -m "Remove underline from married surname display" || exit 0
+          git push
