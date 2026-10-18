@@ -1,0 +1,20 @@
+name: Apply UX features
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patches
+        run: python3 scripts/patch_features.py
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/gedcom.js family-viewer/src/person-info.js family-viewer/src/App.jsx family-viewer/src/FamilyExperience.jsx
+          git status
+          git commit -m "Hebrew dates, child births on timeline, localStorage default, responsive grandparents" || exit 0
+          git push
