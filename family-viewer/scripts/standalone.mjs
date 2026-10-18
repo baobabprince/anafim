@@ -20,10 +20,15 @@ for (const font of await fs.readdir(path.join(root, 'public', 'fonts'))) {
   css = css.replaceAll(`/fonts/${font}`, `data:font/ttf;base64,${base64}`);
 }
 const favicon = (await fs.readFile(path.join(root, 'public', 'favicon.svg'))).toString('base64');
+const manifestContent = await fs.readFile(path.join(root, 'public', 'manifest.webmanifest'), 'utf8');
+const manifestBase64 = Buffer.from(manifestContent.replaceAll('/favicon.svg', `data:image/svg+xml;base64,${favicon}`)).toString('base64');
+
 html = html.replace(/<link[^>]+rel="preload"[^>]*>/g, '');
 html = html.replace(/<link[^>]+href="[^"]+\.css"[^>]*>/, () => `<style>${css}</style>`);
 html = html.replace(/<script[^>]+src="[^"]+"[^>]*><\/script>/, () => `<script type="module">${js.replace(/<\/script/gi, '<\\/script')}</script>`);
 html = html.replace('href="/favicon.svg"', `href="data:image/svg+xml;base64,${favicon}"`);
+html = html.replace('href="/apple-touch-icon"', `href="data:image/svg+xml;base64,${favicon}"`);
+html = html.replace('href="/manifest.webmanifest"', `href="data:application/manifest+json;base64,${manifestBase64}"`);
 html = html.replace('<div id="root"></div>', '<div id="root"></div><noscript>כדי להשתמש בענפים, יש לאפשר JavaScript בדפדפן.</noscript>');
 html = html.replace('<head>', '<head>\n    <!-- ענפים: self-contained, private GEDCOM viewer. Local viewing is offline. Optional configured cloud mode requires HTTPS and network. -->');
 const destination = path.resolve(root, '..', 'anafim.html');
