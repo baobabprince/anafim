@@ -221,3 +221,9 @@
 /* File-encoding warnings must remain readable, including narrow portrait screens. */
 .warnings-card,.warnings-card h3,.warnings-card p,.warnings-card li{color:#71592f}
 .nav-item:not(.active){color:#526747}
+
+.sidebar-cloud{padding:8px 12px 12px;border-top:1px solid var(--line)}
+.sidebar-cloud .cloud-strip{flex-direction:column;align-items:stretch;gap:8px;padding:10px;margin:0;border-radius:12px;background:#f4f1ea;border:1px solid #e2ddd2}
+.sidebar-cloud .cloud-strip>div{min-width:0}
+.sidebar-cloud .cloud-entry{width:100%;justify-content:center}
+.page-content>.cloud-strip{display:none!important}

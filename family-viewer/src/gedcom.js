@@ -291,12 +291,19 @@ export function hebrewDateLabel(date = '') {
 export function formatDate(date = '') {
   if (!date) return 'לא צוין';
   let d = date.trim();
-  const hebrew = hebrewDateLabel(d);
   d = d.replace(/^ABT\s+/i,'בערך ב־').replace(/^CAL\s+/i,'מחושב: ').replace(/^EST\s+/i,'משוער: ').replace(/^BEF\s+/i,'לפני ').replace(/^AFT\s+/i,'אחרי ').replace(/^BET\s+/i,'בין ').replace(/\s+AND\s+/i,' ל־').replace(/^FROM\s+/i,'מ־').replace(/\s+TO\s+/i,' עד ');
   d = d.replace(/\b(\d{1,2})\s+(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+(\d{3,4})\b/gi, (_, day, mon, year) => `${Number(day)} ב${months[mon.toUpperCase()]} ${year}`);
   d = d.replace(/\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/gi, m => months[m.toUpperCase()]);
-  if (hebrew) return `${d} · ${hebrew}`;
   return d;
+}
+
+/** Gregorian + Hebrew — only for the central person display. */
+export function formatDateCentral(date = '') {
+  if (!date) return 'לא צוין';
+  const gregorian = formatDate(date);
+  const hebrew = hebrewDateLabel(date);
+  if (hebrew && hebrew !== gregorian) return `${gregorian} · ${hebrew}`;
+  return gregorian;
 }
 export function lifeLabel(p) {
   if (!p) return '';
