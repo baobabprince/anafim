@@ -5,3 +5,7 @@ playwright-report/
 .DS_Store
 
 .review/
+
+.env
+.env.*
+!.env.example

@@ -217,3 +217,7 @@
 @media screen{.sort-label select{color:#657157}.segmented-control button span{opacity:1;color:#657157}.file-stats strong{color:#5f7648}}
 @media screen and (max-width:800px){.sidebar{visibility:hidden;pointer-events:none}.sidebar.sidebar-open{visibility:visible;pointer-events:auto}}
 .import-error-code{display:block;font-size:10px;margin-top:7px;opacity:.9;overflow-wrap:anywhere}.import-error-code bdi{font-family:ui-monospace,monospace;letter-spacing:.3px}
+
+/* File-encoding warnings must remain readable, including narrow portrait screens. */
+.warnings-card,.warnings-card h3,.warnings-card p,.warnings-card li{color:#71592f}
+.nav-item:not(.active){color:#526747}

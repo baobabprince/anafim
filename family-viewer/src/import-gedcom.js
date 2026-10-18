@@ -134,7 +134,7 @@ function tryWorker(buffer, {
         armTimer(workerIdleTimeoutMs);
         if (result.type === 'progress') onProgress?.(10 + Math.round(Math.min(100, Math.max(0, result.progress || 0)) * 0.89));
         else if (result.type === 'success' && result.data?.order?.length) finish(resolve, {
-          data: result.data, raw: result.raw, encoding: result.encoding, importMethod: 'background',
+          data: result.data, raw: result.raw, encoding: result.encoding, encodingInfo:result.encodingInfo, importMethod: 'background',
         });
         else if (result.type === 'error') finish(reject, new Error(result.error || 'WORKER_PARSE_FAILED'));
       };
@@ -184,7 +184,7 @@ export async function importGedcomFile(file, {
     });
     if (decoded.warnings?.length) data.warnings.push(...decoded.warnings);
     onProgress(100);
-    return { data, raw: decoded.text, encoding: decoded.encoding, importMethod: 'direct' };
+    return { data, raw: decoded.text, encoding: decoded.encoding, encodingInfo:decoded.encodingInfo, importMethod: 'direct' };
   } catch (error) {
     if (error.name === 'AbortError') throw error;
     const code = error.code || (/לא נמצאו אנשים/.test(error.message) ? 'NO_INDIVIDUALS' : 'GEDCOM_PARSE_FAILED');

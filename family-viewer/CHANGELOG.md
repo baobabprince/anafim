@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.0.1 — 2026-10-18
+
+- Replaced header-first encoding guesses with a shared byte-based decoder: UTF-8/UTF-16 BOMs, structural BOM-less UTF-16, whole-file UTF-8 validation, legacy declarations and conservative damaged-UTF-8 handling.
+- Valid UTF-8 now overrides stale ANSEL/Windows declarations, while manual selection still wins. Malformed Unicode and uncertain legacy guesses are reported instead of silently switching the whole dataset.
+- Added actual encoding versus original CHAR diagnostics and propagated encoding warnings through both the real worker and the protected local fallback.
+- Expanded README into a complete standalone operator/developer guide: Supabase schema/RLS verification, current public keys, Google OAuth origins and callbacks, redirect URLs, environment/JSON configuration, HTTPS/CSP, deployment, recovery, maintenance, upgrades and troubleshooting.
+- Added UTF-8/BOM/stale-header/damaged-byte/UTF-16/legacy/offset/manual-override regression tests and browser coverage for worker, fallback and offline standalone imports.
+- Cloud schema and encrypted snapshot format remain unchanged. Previously misdecoded cached/cloud snapshots must be reimported from the original GEDCOM; this release does not invent missing bytes.
+
+## 2.0.0 — 2026-10-18
+
+### Optional Google account and client-encrypted cloud vault
+
+- Added an explicitly unconfigured-by-default Supabase Auth/Google PKCE integration, public project configuration and setup SQL download.
+- Random AES-256-GCM data keys, HKDF-derived WebAuthn PRF and recovery key wraps, authenticated owner/revision contexts, bounded compression/decompression and mandatory recovery confirmation. Google identifiers are never encryption passwords.
+- Added memory-only unlock, Passkey/recovery opening, additional Passkey enrollment, lock/logout clearing and ten-minute idle locking.
+- Added private Storage and per-user PostgreSQL RLS with restrictive legacy-policy guards, immutable revision uploads, advisory-lock-serialized compare-and-swap commits and retained encrypted history.
+- Added opt-in automatic synchronization, focus/online/poll/realtime updates, retry after a failed upload, explicit dirty-local conflict resolution and guarded asynchronous view replacement.
+- Updated privacy language and explicitly labeled the existing optional plaintext local cache. Offline local import and worker fallback remain supported.
+- Added build/runtime rejection of server keys in client config, static hosting security headers, operator setup and threat-model documentation.
+- Added Web Crypto, real local PostgreSQL access-control, virtual-authenticator PRF, second-device recovery/sync, unsupported-PRF, OAuth redirect-contract and ciphertext-only upload tests.
+
+Cloud setup is NOT performed by packaging this release. Real operator-owned Google/Supabase integration, physical passkey-provider testing and independent security review remain required before production.
+
 ## 1.3.0 — 2026-10-18
 
 ### Clearer grandparents, visible by default

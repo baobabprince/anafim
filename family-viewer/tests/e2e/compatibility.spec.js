@@ -25,7 +25,7 @@ for (const failure of ['api-unavailable','constructor-blocked','script-blocked',
     await expect(page.locator('.focus-card h2')).toHaveText('Robert Eugene Williams');
     await page.locator('.demo-badge').click();
     await expect(page.locator('.file-main-card')).toContainText('טעינה ישירה');
-    await expect(page.locator('.file-main-card')).toContainText('1.3.0');
+    await expect(page.locator('.file-main-card')).toContainText('2.0.1');
   });
 }
 

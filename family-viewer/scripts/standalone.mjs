@@ -25,7 +25,7 @@ html = html.replace(/<link[^>]+href="[^"]+\.css"[^>]*>/, () => `<style>${css}</s
 html = html.replace(/<script[^>]+src="[^"]+"[^>]*><\/script>/, () => `<script type="module">${js.replace(/<\/script/gi, '<\\/script')}</script>`);
 html = html.replace('href="/favicon.svg"', `href="data:image/svg+xml;base64,${favicon}"`);
 html = html.replace('<div id="root"></div>', '<div id="root"></div><noscript>כדי להשתמש בענפים, יש לאפשר JavaScript בדפדפן.</noscript>');
-html = html.replace('<head>', '<head>\n    <!-- ענפים: self-contained, private GEDCOM viewer. No external dependencies or network requests. -->');
+html = html.replace('<head>', '<head>\n    <!-- ענפים: self-contained, private GEDCOM viewer. Local viewing is offline. Optional configured cloud mode requires HTTPS and network. -->');
 const destination = path.resolve(root, '..', 'anafim.html');
 await fs.writeFile(destination, html);
 console.log(`Standalone viewer saved: ${destination} (${Math.round(Buffer.byteLength(html) / 1024)} KB)`);

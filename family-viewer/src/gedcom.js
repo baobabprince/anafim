@@ -22,49 +22,7 @@ export function normalize(s = '') {
   return String(s).normalize('NFKD').replace(/\p{M}/gu, '').replace(/[\u200e\u200f]/g, '').toLocaleLowerCase().replace(/[\/"׳״'.,־–—-]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-const anselMarks = {225:'\u0300',226:'\u0301',227:'\u0302',228:'\u0303',229:'\u0304',230:'\u0306',231:'\u0307',232:'\u0308',233:'\u030c',234:'\u030a',235:'\u0361',236:'\u0361',237:'\u0315',238:'\u030b',239:'\u0310',240:'\u0327',241:'\u0328',242:'\u0323',243:'\u0324',244:'\u0325',245:'\u0333',246:'\u0332',247:'\u0326',248:'\u031c',249:'\u032e',250:'\u0360',251:'\u0360',254:'\u0313'};
-const anselChars = {161:'Ł',162:'Ø',163:'Đ',164:'Þ',165:'Æ',166:'Œ',167:'ʹ',168:'·',169:'♭',170:'®',171:'±',172:'Ơ',173:'Ư',174:'ʼ',176:'ʻ',177:'ł',178:'ø',179:'đ',180:'þ',181:'æ',182:'œ',183:'ʺ',184:'ı',185:'£',186:'ð',188:'ơ',189:'ư',192:'°',193:'ℓ',194:'℗',195:'©',196:'♯',197:'¿',198:'¡',207:'ß'};
-function decodeAnsel(bytes) {
-  let result = '', marks = '';
-  for (const b of bytes) {
-    if (anselMarks[b]) { marks += anselMarks[b]; continue; }
-    const c = b < 128 ? String.fromCharCode(b) : (anselChars[b] || '�');
-    result += c + marks;
-    marks = '';
-  }
-  return (result + marks).normalize('NFC');
-}
-
-export function decodeGedcom(buffer, requested = 'auto') {
-  const bytes = new Uint8Array(buffer);
-  let encoding = requested;
-  if (encoding === 'auto') {
-    if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = 'utf-16le';
-    else if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = 'utf-16be';
-    else if (bytes[0] === 0x30 && bytes[1] === 0) encoding = 'utf-16le';
-    else if (bytes[0] === 0 && bytes[1] === 0x30) encoding = 'utf-16be';
-    else {
-      const head = new TextDecoder('windows-1252').decode(bytes.slice(0, 8192));
-      const declared = head.match(/(?:^|[\r\n])1 CHAR (.+)/i)?.[1].trim().toUpperCase();
-      if (declared === 'ANSEL') encoding = 'ansel';
-      else if (declared?.includes('1255')) encoding = 'windows-1255';
-      else if (declared?.includes('1252')) encoding = 'windows-1252';
-      else if (declared === 'ASCII') encoding = 'utf-8';
-      else {
-        try { new TextDecoder('utf-8', { fatal: true }).decode(bytes); encoding = 'utf-8'; }
-        catch {
-          let high = 0, hebrew = 0;
-          for (const b of bytes.slice(0, 65536)) { if (b >= 128) high++; if (b >= 0xe0 && b <= 0xfa) hebrew++; }
-          encoding = /HEBREW|1255/i.test(head) || (hebrew >= 3 && hebrew / Math.max(1, high) > 0.65) ? 'windows-1255' : 'windows-1252';
-        }
-      }
-    }
-  }
-  let decoded;
-  try { decoded = encoding === 'ansel' ? decodeAnsel(bytes) : new TextDecoder(encoding).decode(bytes); }
-  catch { throw new Error('הקידוד שנבחר אינו נתמך. נסו לבחור קידוד אחר.'); }
-  return { text: decoded.replace(/^\uFEFF/, ''), encoding };
-}
+export { decodeGedcom } from './gedcom-encoding.js';
 
 function citationsFromNode(n) {
   return children(n, 'SOUR').map(source => ({ id:source.value.trim(), page:text(child(source,'PAGE')), text:text(child(child(source,'DATA'),'TEXT')) || text(child(source,'TEXT')) }));
