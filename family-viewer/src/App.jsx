@@ -57,7 +57,7 @@ function Dialog({ title, subtitle, children, onClose, className = '' }) {
 }
 
 function UploadDialog({ onClose, onImport, onDemo }) {
-  const [file, setFile] = useState(null), [encoding, setEncoding] = useState('auto'), [remember, setRemember] = useState(false), [error, setError] = useState(''), [dragging, setDragging] = useState(false), [busy, setBusy] = useState(false), [progress, setProgress] = useState(0), [phase, setPhase] = useState('reading');
+  const [file, setFile] = useState(null), [encoding, setEncoding] = useState('auto'), [remember, setRemember] = useState(true), [error, setError] = useState(''), [dragging, setDragging] = useState(false), [busy, setBusy] = useState(false), [progress, setProgress] = useState(0), [phase, setPhase] = useState('reading');
   const inputRef = useRef(null), abortRef = useRef(null);
   useEffect(() => () => { abortRef.current?.abort(); }, []);
   const pickFile = f => {
@@ -103,7 +103,7 @@ function UploadDialog({ onClose, onImport, onDemo }) {
       <input ref={inputRef} type="file" accept=".ged,.gedcom,.txt,application/x-gedcom,text/plain,application/octet-stream" aria-label="בחירת קובץ GEDCOM" onChange={e => pickFile(e.target.files[0])} className="visually-hidden" disabled={busy}/>
     </div>
     <div className="encoding-field"><label htmlFor="encoding">קידוד הקובץ</label><select id="encoding" value={encoding} onChange={e => setEncoding(e.target.value)} disabled={busy}><option value="auto">זיהוי אוטומטי (מומלץ)</option><option value="utf-8">UTF-8</option><option value="windows-1255">עברית · Windows-1255</option><option value="utf-16le">UTF-16 LE</option><option value="utf-16be">UTF-16 BE</option><option value="ansel">ANSEL</option><option value="windows-1252">Windows-1252</option></select><span>השמות נראים משובשים? נסו לבחור קידוד אחר.</span></div>
-    <label className="checkbox-label"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} disabled={busy}/><span>לזכור עותק לא מוצפן בדפדפן הזה<span className="field-hint">אופציונלי. במכשיר משותף מומלץ להשאיר כבוי. אפשר למחוק מפרטי הקובץ.</span></span></label>
+    <label className="checkbox-label"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} disabled={busy}/><span>לזכור עותק לא מוצפן בדפדפן הזה<span className="field-hint">ברירת מחדל: שמירה במכשיר זה. במכשיר משותף מומלץ לכבות. אפשר למחוק מפרטי הקובץ.</span></span></label>
     {error && <div className="error-message" role="alert"><AlertTriangle size={18}/><span>{typeof error === 'string' ? error : error.message}{error.code && <small className="import-error-code">קוד שגיאה: <bdi>{error.code}</bdi></small>}</span></div>}
     {busy && <div className="import-progress" role="status"><div><span>{phaseLabels[phase]}</span><span>{progress}%</span></div><progress value={progress} max="100"/></div>}
     <button className="button button-primary button-full" onClick={importFile} disabled={!file || busy}>{busy ? <LoaderCircle className="spin" size={19}/> : <Network size={19}/>}<span>{busy ? phaseLabels[phase] : 'פתיחת האילן שלי'}</span>{!busy && <ArrowLeft size={17}/>}</button>

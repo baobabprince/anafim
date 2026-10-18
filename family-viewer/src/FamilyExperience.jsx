@@ -138,7 +138,7 @@ function OverviewPanel({ person, info }) {
 function TimelinePanel({ info }) {
   return <div className="fx-timeline-panel"><div className="fx-section-intro"><strong>הרגעים שמרכיבים חיים</strong><span>{count(info.events.length)} אירועים כפי שתועדו בקובץ</span></div><ol className="fx-life-timeline">{info.events.map((event,i)=>{
     const Icon = event.type === 'BIRT' ? Sprout : event.type === 'MARR' ? Heart : event.type === 'DEAT' ? Flower2 : event.type === 'RESI' ? House : CalendarDays;
-    return <li key={i} className={`fx-timeline-item fx-event-${event.type.toLowerCase()}`}><span className="fx-event-icon"><Icon size={13}/></span><div><span className="fx-event-label">{eventTitle(event)}</span><strong>{event.date ? formatDate(event.date) : 'התאריך לא צוין'}</strong>{event.place && <span className="fx-event-place"><MapPin size={11}/><bdi>{event.place}</bdi></span>}{event.partners?.length > 0 && <span className="fx-event-partner">עם {event.partners.map(p=>p.name).join(', ')}</span>}{event.detail && <p dir="auto">{event.detail}</p>}{event.address && <p dir="auto">{event.address}</p>}{event.cause && <p dir="auto">{event.cause}</p>}{event.age && <small>גיל כפי שתועד: {event.age}</small>}{event.notes?.map((note,index)=><p className="fx-event-note" dir="auto" key={index}>{note}</p>)}</div></li>;
+    return <li key={i} className={`fx-timeline-item fx-event-${event.type.toLowerCase()}`}><span className="fx-event-icon"><Icon size={13}/></span><div><span className="fx-event-label">{eventTitle(event)}</span><strong>{event.date ? formatDate(event.date) : 'התאריך לא צוין'}</strong>{event.place && <span className="fx-event-place"><MapPin size={11}/><bdi>{event.place}</bdi></span>}{event.type === 'CHIL_BIRT' && event.detail && <span className="fx-event-partner" dir="auto">{event.detail}</span>}{event.partners?.length > 0 && event.type !== 'CHIL_BIRT' && <span className="fx-event-partner">עם {event.partners.map(p=>p.name).join(', ')}</span>}{event.detail && event.type !== 'CHIL_BIRT' && <p dir="auto">{event.detail}</p>}{event.address && <p dir="auto">{event.address}</p>}{event.cause && <p dir="auto">{event.cause}</p>}{event.age && <small>גיל כפי שתועד: {event.age}</small>}{event.notes?.map((note,index)=><p className="fx-event-note" dir="auto" key={index}>{note}</p>)}</div></li>;
   })}</ol>{!info.events.length && <div className="fx-tab-empty"><CalendarDays size={27}/><strong>עוד אין אירועים מתועדים</strong><p>תאריכים ומקומות יופיעו כאן אם נכללו בקובץ המקורי.</p></div>}</div>;
 }
 
@@ -166,8 +166,9 @@ function PersonInspector({ data, person, info, bundle, onSelect, tab, setTab }) 
 export default function FamilyExperience({ data, person, bundle, onSelect, parentFamily, setParentFamily, history, onHistory, onHelp }) {
   const relations = useMemo(()=>getRelations(data,person.id,parentFamily),[data,person.id,parentFamily]);
   const info = useMemo(()=>personInformation(data,person),[data,person]);
-  const [showGrandparents,setShowGrandparents] = useState(true),[groups,setGroups] = useState(new Set()),[tab,setTab] = useState('overview'),[grandparentFamilies,setGrandparentFamilies] = useState({});
-  useEffect(()=>{setGroups(new Set());setTab('overview');setShowGrandparents(true);setGrandparentFamilies({});},[person.id,data]);
+  const preferGrandparentsOpen = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 900px)').matches;
+  const [showGrandparents,setShowGrandparents] = useState(preferGrandparentsOpen),[groups,setGroups] = useState(new Set()),[tab,setTab] = useState('overview'),[grandparentFamilies,setGrandparentFamilies] = useState({});
+  useEffect(()=>{setGroups(new Set());setTab('overview');setShowGrandparents(preferGrandparentsOpen());setGrandparentFamilies({});},[person.id,data]);
   const grandparents = useMemo(()=>relations.parents.map(parent=>{
     const branch=getRelations(data,parent.id,grandparentFamilies[parent.id]);
     const people=branch.parents.filter(p=>p.id !== person.id && p.id !== parent.id);
