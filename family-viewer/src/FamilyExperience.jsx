@@ -78,14 +78,32 @@ function FocusFact({ icon:Icon, label, event, fallback }) {
   return <div className="fx-focus-fact"><span className="fx-focus-fact-icon"><Icon size={15}/></span><span><span className="fx-fact-label">{label}</span><strong dir="auto">{event?.date ? formatDate(event.date) : event?.detail || (event ? 'התאריך לא צוין' : fallback || 'לא תועד')}</strong>{event?.place && <small><MapPin size={10}/><bdi>{event.place}</bdi></small>}</span></div>;
 }
 
+
+function focusIdentity(person, relations) {
+  const given = (person.given || person.name?.split(/\s+/)[0] || '').trim();
+  const hasMarriage = Boolean(relations?.partners?.length || (person.spouseFamilies || []).length);
+  let marriedSurname = (person.marriedSurname || '').trim();
+  if (!marriedSurname && person.sex === 'F' && hasMarriage) {
+    const partnerSurnames = [...new Set((relations?.partners || []).map(p => (p.surname || '').trim()).filter(Boolean))];
+    if (partnerSurnames.length === 1) marriedSurname = partnerSurnames[0];
+    else if (person.surname && person.birthSurname && person.surname !== person.birthSurname) marriedSurname = person.surname;
+  }
+  const birthSurname = (person.birthSurname || '').trim();
+  const showMarried = person.sex === 'F' && hasMarriage && marriedSurname;
+  const title = showMarried ? [given, marriedSurname].filter(Boolean).join(' ') : person.name;
+  const maiden = showMarried && birthSurname && birthSurname !== marriedSurname ? birthSurname : '';
+  return { title, given, marriedSurname: showMarried ? marriedSurname : '', maiden };
+}
+
 function FocusCard({ person, info, relations, onOpenGroup, onSources }) {
   const marriage = info.events.find(e => e.type === 'MARR');
   const secondEvent = person.death || marriage || info.residence;
   const secondLabel = person.death ? 'פטירה' : marriage ? 'נישואים' : 'מגורים';
   const SecondIcon = person.death ? Flower2 : marriage ? Heart : House;
+  const identity = focusIdentity(person, relations);
   return <article className="focus-card fx-focus" key={person.id}>
     <div className="fx-focus-ribbon"><span><span className="fx-selection-dot"/>במרכז הסיפור</span><button onClick={onSources} title="פרטי הרשומה והמקורות" aria-label="הצגת מקורות ופרטי הרשומה"><FileText size={12}/><bdi>{shortId(person.id)}</bdi></button></div>
-    <div className="fx-focus-identity"><Portrait person={person} size="large"/><div><span className="fx-profile-type">{person.sex === 'F' ? 'הסיפור שלה' : person.sex === 'M' ? 'הסיפור שלו' : 'הסיפור האישי'}</span><h2 dir="auto">{person.name}</h2><span className="fx-focus-years">{lifeLabel(person)}{info.ageAtDeath !== null && <span> · {info.ageAtDeath} שנים</span>}</span></div><Sprout className="fx-focus-sprout" size={30} strokeWidth={1.2}/></div>
+    <div className="fx-focus-identity"><Portrait person={person} size="large"/><div><span className="fx-profile-type">{person.sex === 'F' ? 'הסיפור שלה' : person.sex === 'M' ? 'הסיפור שלו' : 'הסיפור האישי'}</span><h2 dir="auto">{identity.marriedSurname ? <>{identity.given} <span className="fx-focus-married-surname">{identity.marriedSurname}</span></> : identity.title}</h2>{identity.maiden ? <span className="fx-focus-maiden">לבית {identity.maiden}</span> : null}<span className="fx-focus-years">{lifeLabel(person)}{info.ageAtDeath !== null && <span> · {info.ageAtDeath} שנים</span>}</span></div><Sprout className="fx-focus-sprout" size={30} strokeWidth={1.2}/></div>
     <div className="fx-focus-facts"><FocusFact icon={Sprout} label="לידה" event={person.birth}/><FocusFact icon={SecondIcon} label={secondLabel} event={secondEvent}/></div>
     {person.occupation && <div className="fx-focus-occupation"><BriefcaseBusiness size={13}/><span dir="auto">{person.occupation}</span></div>}
     <div className="fx-focus-summary"><button onClick={() => onOpenGroup('partners')}><Heart size={12}/>{count(relations.partners.length)} בני זוג</button><button onClick={() => onOpenGroup('children')}><Baby size={12}/>{count(relations.children.length)} ילדים</button><button onClick={() => onOpenGroup('siblings')}><UsersRound size={12}/>{count(relations.siblings.length)} אחים</button></div>

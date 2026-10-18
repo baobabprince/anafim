@@ -46,15 +46,35 @@ function* parseGedcomSteps(raw) {
     } else if (n.tag === 'INDI' && n.xref) {
       if (people[n.xref]) { warn(`מזהה אדם כפול: ${n.xref}. נשמר הרישום הראשון.`); return; }
       const nameNodes = children(n, 'NAME');
-      const nn = nameNodes.find(x => !['married', 'aka'].includes(value(x, 'TYPE').toLowerCase())) || nameNodes[0];
-      const rawName = text(nn);
-      const split = rawName.match(/^(.*?)\/(.*?)\/(.*)$/s);
-      const given = value(nn, 'GIVN') || split?.[1]?.trim() || (split ? '' : rawName);
-      const surname = value(nn, 'SURN') || split?.[2]?.trim() || '';
-      const name = rawName.replace(/\//g, '').replace(/\s+/g, ' ').trim() || [given, surname].filter(Boolean).join(' ') || 'שם לא ידוע';
+      const parseNameNode = nn => {
+        if (!nn) return null;
+        const type = value(nn, 'TYPE').toLowerCase();
+        const rawName = text(nn);
+        const split = rawName.match(/^(.*?)\/(.*?)\/(.*)$/s);
+        const given = value(nn, 'GIVN') || split?.[1]?.trim() || (split ? '' : rawName);
+        const surname = value(nn, 'SURN') || split?.[2]?.trim() || '';
+        const full = rawName.replace(/\//g, '').replace(/\s+/g, ' ').trim() || [given, surname].filter(Boolean).join(' ') || '';
+        return { type, given, surname, full, raw: rawName };
+      };
+      const nameEntries = nameNodes.map(parseNameNode).filter(Boolean);
+      const primaryEntry = nameEntries.find(e => !['married', 'married name', 'marriedname', 'aka', 'nick', 'nickname'].includes(e.type)) || nameEntries[0];
+      const marriedEntry = nameEntries.find(e => ['married', 'married name', 'marriedname'].includes(e.type));
+      const birthEntry = nameEntries.find(e => ['birth', 'maiden', 'birth name', 'birthname'].includes(e.type));
+      const given = primaryEntry?.given || '';
+      const surname = primaryEntry?.surname || '';
+      const name = primaryEntry?.full || [given, surname].filter(Boolean).join(' ') || 'שם לא ידוע';
+      let marriedSurname = marriedEntry?.surname || '';
+      let birthSurname = birthEntry?.surname || '';
+      if (!marriedSurname && birthSurname && surname && normalize(surname) !== normalize(birthSurname)) marriedSurname = surname;
+      if (!birthSurname && marriedSurname && surname && normalize(surname) !== normalize(marriedSurname)) birthSurname = surname;
+      if (!birthSurname && birthEntry?.full) {
+        const bits = birthEntry.full.split(/\s+/);
+        if (bits.length > 1) birthSurname = bits.at(-1);
+      }
       const eventTags = ['BIRT','DEAT','BURI','CREM','BAPM','CHR','ADOP','RESI','IMMI','EMIG','NATU','GRAD','RETI','OCCU','EDUC','EVEN','CENS'];
       const events = n.children.filter(c => eventTags.includes(c.tag)).map(eventFromNode);
-      const p = { id: n.xref, name, given, surname, sex: value(n, 'SEX'), alternateNames: nameNodes.filter(x => x !== nn).map(x => text(x).replace(/\//g, '').trim()), birth: events.find(e => e.type === 'BIRT') || null, death: events.find(e => e.type === 'DEAT') || null, events, parentFamilies: children(n, 'FAMC').map(c => ({ id: c.value, type: value(c, 'PEDI') || 'birth' })), spouseFamilies: children(n, 'FAMS').map(c => c.value), notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text), sources: citationsFromNode(n), occupation: text(child(n, 'OCCU')), attributes:n.children.filter(c=>['NATI','RELI','TITL','DSCR','IDNO','NCHI','NMR'].includes(c.tag)).map(c=>({type:c.tag,value:text(c)})) };
+      const alternateNames = nameEntries.filter(e => e !== primaryEntry).map(e => e.full).filter(Boolean);
+      const p = { id: n.xref, name, given, surname, sex: value(n, 'SEX'), alternateNames, marriedSurname, birthSurname, birth: events.find(e => e.type === 'BIRT') || null, death: events.find(e => e.type === 'DEAT') || null, events, parentFamilies: children(n, 'FAMC').map(c => ({ id: c.value, type: value(c, 'PEDI') || 'birth' })), spouseFamilies: children(n, 'FAMS').map(c => c.value), notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text), sources: citationsFromNode(n), occupation: text(child(n, 'OCCU')), attributes:n.children.filter(c=>['NATI','RELI','TITL','DSCR','IDNO','NCHI','NMR'].includes(c.tag)).map(c=>({type:c.tag,value:text(c)})) };
       people[p.id] = p;
       order.push(p.id);
     } else if (n.tag === 'FAM' && n.xref) {
@@ -114,7 +134,27 @@ function* parseGedcomSteps(raw) {
     p.spouseFamilies = p.spouseFamilies.filter(id => families[id]);
     p.notes = resolveNotes(p.notes);
     p.events.forEach(e => { e.notes = resolveNotes(e.notes); });
-    p.search = normalize([p.name, ...p.alternateNames, p.birth?.date, p.birth?.place, p.death?.date, p.death?.place, p.id].filter(Boolean).join(' '));
+    if (p.sex === 'F' && !p.marriedSurname && p.spouseFamilies.length) {
+      const partnerSurnames = [];
+      for (const fid of p.spouseFamilies) {
+        const family = families[fid];
+        if (!family) continue;
+        for (const pid of family.partners) {
+          if (pid === p.id) continue;
+          const partner = people[pid];
+          if (partner?.surname) partnerSurnames.push(partner.surname);
+        }
+      }
+      const uniqueSurnames = [...new Set(partnerSurnames.map(s => s.trim()).filter(Boolean))];
+      if (uniqueSurnames.length === 1) {
+        const candidate = uniqueSurnames[0];
+        if (!p.birthSurname || normalize(candidate) !== normalize(p.birthSurname)) p.marriedSurname = candidate;
+      }
+    }
+    if (p.sex === 'F' && p.marriedSurname && !p.birthSurname && p.surname && normalize(p.surname) !== normalize(p.marriedSurname)) {
+      p.birthSurname = p.surname;
+    }
+    p.search = normalize([p.name, p.marriedSurname, p.birthSurname, ...p.alternateNames, p.birth?.date, p.birth?.place, p.death?.date, p.death?.place, p.id].filter(Boolean).join(' '));
   }
   for (const f of Object.values(families)) {
     f.notes = resolveNotes(f.notes);
