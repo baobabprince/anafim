@@ -15,6 +15,12 @@ test('PWA manifest exists and contains valid JSON with Hebrew app info', () => {
   assert.equal(content.display, 'standalone');
   assert.equal(content.dir, 'rtl');
   assert.equal(content.lang, 'he');
+
+  assert.ok(Array.isArray(content.icons) && content.icons.length >= 2, 'manifest should include icon definitions');
+  for (const icon of content.icons) {
+    const iconFile = path.join(rootDir, 'public', icon.src.replace(/^\.\//, ''));
+    assert.ok(fs.existsSync(iconFile), `manifest icon file ${icon.src} should exist`);
+  }
 });
 
 test('index.html links manifest.json and includes mobile web app meta tags', () => {

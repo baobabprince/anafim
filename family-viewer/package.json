@@ -21,7 +21,9 @@
     "@axe-core/playwright": "^4.13.0",
     "@electric-sql/pglite": "^0.5.10",
     "@playwright/test": "^1.51.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "sharp": "^0.35.5",
     "vite": "^6.0.5"
   }
 }
