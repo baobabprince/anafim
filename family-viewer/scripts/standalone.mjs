@@ -8,11 +8,12 @@ let html = await fs.readFile(path.join(dist, 'index.html'), 'utf8');
 const jsPath = html.match(/<script[^>]+src="([^"]+)"[^>]*><\/script>/)?.[1];
 const cssPath = html.match(/<link[^>]+href="([^"]+\.css)"[^>]*>/)?.[1];
 if (!jsPath || !cssPath) throw new Error('Build assets not found. Run npm run build first.');
-let js = await fs.readFile(path.join(dist, jsPath.slice(1)), 'utf8');
-let css = await fs.readFile(path.join(dist, cssPath.slice(1)), 'utf8');
+const relPath = (p) => p.replace(/^\/anafim\//, '').replace(/^\//, '');
+let js = await fs.readFile(path.join(dist, relPath(jsPath)), 'utf8');
+let css = await fs.readFile(path.join(dist, relPath(cssPath)), 'utf8');
 const workerMatch = js.match(/new Worker\(new URL\("([^"]*gedcom\.worker[^"]*)",import\.meta\.url\),\{type:"module"\}\)/);
 if (!workerMatch) throw new Error('Could not embed the GEDCOM worker.');
-const worker = await fs.readFile(path.join(dist, workerMatch[1].slice(1)), 'utf8');
+const worker = await fs.readFile(path.join(dist, relPath(workerMatch[1])), 'utf8');
 const replacement = `(()=>{const u=URL.createObjectURL(new Blob([${JSON.stringify(worker)}],{type:"text/javascript"}));const w=new Worker(u,{type:"classic"});const clear=()=>URL.revokeObjectURL(u);w.addEventListener("message",clear,{once:true});w.addEventListener("error",clear,{once:true});return w;})()`;
 js = js.replace(workerMatch[0], replacement);
 for (const font of await fs.readdir(path.join(root, 'public', 'fonts'))) {

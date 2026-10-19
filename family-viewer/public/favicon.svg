@@ -1,1 +1,69 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="19" fill="#ad694c"/><path d="M32 46V29m0 8L20 25m12 8 12-12" fill="none" stroke="#fffaf3" stroke-width="3.5" stroke-linecap="round"/><path d="M20 26c-10 0-11-10-11-10s11-2 13 7m22 0c10 0 11-11 11-11s-11-1-13 8M32 30c-8-5-5-14-5-14s11 3 8 12" fill="#fffaf3"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Rich warm earth background gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#b87050" />
+      <stop offset="100%" stop-color="#934d32" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background squircle -->
+  <rect width="512" height="512" rx="140" fill="url(#bgGrad)" />
+
+  <!-- Inner subtle border -->
+  <rect x="14" y="14" width="484" height="484" rx="126" fill="none" stroke="#fffaf3" stroke-opacity="0.12" stroke-width="3" />
+
+  <!-- Tree Structure: Curved Branches and Central Trunk -->
+  <g fill="none" stroke="#fffaf3" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Trunk Base -->
+    <path d="M256 420 L256 220" stroke-width="16" />
+
+    <!-- Branch Tier 1 (Lower) -->
+    <path d="M256 330 C200 330 140 300 120 250" stroke-width="12" />
+    <path d="M256 330 C312 330 372 300 392 250" stroke-width="12" />
+
+    <!-- Branch Tier 2 (Middle) -->
+    <path d="M256 260 C190 260 145 200 135 155" stroke-width="11" />
+    <path d="M256 260 C322 260 367 200 377 155" stroke-width="11" />
+
+    <!-- Branch Tier 3 (Upper Center) -->
+    <path d="M256 220 C220 180 195 145 195 110" stroke-width="10" />
+    <path d="M256 220 L256 100" stroke-width="10" />
+    <path d="M256 220 C292 180 317 145 317 110" stroke-width="10" />
+  </g>
+
+  <!-- Connection Nodes (Family Members / Generations) -->
+  <g fill="#fffaf3">
+    <!-- Root -->
+    <circle cx="256" cy="420" r="14" />
+
+    <!-- Tier 1 Nodes -->
+    <circle cx="256" cy="330" r="11" />
+    <circle cx="120" cy="250" r="11" />
+    <circle cx="392" cy="250" r="11" />
+
+    <!-- Tier 2 Nodes -->
+    <circle cx="256" cy="260" r="11" />
+    <circle cx="135" cy="155" r="10" />
+    <circle cx="377" cy="155" r="10" />
+
+    <!-- Top Generation Nodes -->
+    <circle cx="195" cy="110" r="10" />
+    <circle cx="256" cy="100" r="10" />
+    <circle cx="317" cy="110" r="10" />
+  </g>
+
+  <!-- Elegant Leaf Accents Blooming on Top / Outer Nodes -->
+  <g fill="#fffaf3">
+    <!-- Leaf on top-left (195, 110) -->
+    <path d="M195 100 C187 84 191 72 195 65 C199 72 203 84 195 100 Z" transform="rotate(-18 195 100)" />
+    <!-- Leaf on top-center (256, 100) -->
+    <path d="M256 90 C248 74 252 62 256 55 C260 62 264 74 256 90 Z" />
+    <!-- Leaf on top-right (317, 110) -->
+    <path d="M317 100 C309 84 313 72 317 65 C321 72 325 84 317 100 Z" transform="rotate(18 317 100)" />
+
+    <!-- Side Leaves on Tier 2 Nodes -->
+    <path d="M135 145 C122 134 122 120 128 114 C134 122 142 132 135 145 Z" />
+    <path d="M377 145 C390 134 390 120 384 114 C378 122 370 132 377 145 Z" />
+  </g>
+</svg>
