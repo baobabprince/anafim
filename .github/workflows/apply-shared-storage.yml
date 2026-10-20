@@ -1,0 +1,30 @@
+name: Apply shared storage
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apply-shared-storage.yml'
+      - 'family-viewer/scripts/apply-shared-storage.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply patch
+        run: python3 family-viewer/scripts/apply-shared-storage.py
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/App.jsx
+          git status
+          git diff --cached --quiet && echo no-changes && exit 0
+          git commit -m "feat(shared): save/load GEDCOM via baobab localStorage"
+          git push origin HEAD:master
