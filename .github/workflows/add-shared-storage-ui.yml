@@ -1,0 +1,195 @@
+name: Add shared storage UI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch App.jsx
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path('family-viewer/src/App.jsx')
+          t = p.read_text()
+
+          if 'baobab-shared-storage' not in t:
+              t = t.replace(
+                  "import { importGedcomFile, MAX_FILE_BYTES } from './import-gedcom.js';",
+                  "import { importGedcomFile, MAX_FILE_BYTES } from './import-gedcom.js';\nimport { saveSharedExport, loadSharedExport, hasSharedExport, formatSharedSummary } from './baobab-shared-storage.js';",
+                  1,
+              )
+
+          # After successful non-demo loadBundle path: find loadBundle definition
+          # Inject helper after saveFileToLocalStorage export block if missing
+          if 'pushToBaobabShared' not in t:
+              helper = '''
+function pushToBaobabShared(bundle) {
+  if (!bundle || bundle.isDemo || !bundle.raw) return;
+  try {
+    saveSharedExport({
+      source: 'anafim',
+      filename: bundle.filename || 'family.ged',
+      gedcom: bundle.raw,
+      encoding: bundle.encoding || 'utf-8',
+      meta: {
+        personCount: bundle.data?.stats?.people,
+        familyCount: bundle.data?.stats?.families,
+        title: bundle.filename,
+      },
+    });
+  } catch (err) {
+    console.warn('baobab shared save skipped', err);
+  }
+}
+
+function loadFromBaobabShared(onImport) {
+  const shared = loadSharedExport();
+  if (!shared?.gedcom) return null;
+  try {
+    const data = parseGedcom(shared.gedcom);
+    const bundle = {
+      id: 'shared-' + Date.now(),
+      data,
+      raw: shared.gedcom,
+      filename: shared.filename || 'shared.ged',
+      encoding: shared.encoding || 'utf-8',
+      isDemo: false,
+      remembered: false,
+      importedAt: shared.exportedAt || new Date().toISOString(),
+    };
+    if (typeof onImport === 'function') onImport(bundle);
+    return bundle;
+  } catch (err) {
+    console.error('baobab shared parse failed', err);
+    return null;
+  }
+}
+'''
+              # place after removeFileFromLocalStorage function ends — after setActiveFileIdInStorage
+              marker = 'export function setActiveFileIdInStorage(fileId) {'
+              if marker not in t:
+                  # try without export
+                  idx = t.find('function setActiveFileIdInStorage')
+                  if idx < 0:
+                      # insert after STORAGE constants
+                      t = t.replace(
+                          "import { saveSharedExport, loadSharedExport, hasSharedExport, formatSharedSummary } from './baobab-shared-storage.js';\n",
+                          "import { saveSharedExport, loadSharedExport, hasSharedExport, formatSharedSummary } from './baobab-shared-storage.js';\n" + helper,
+                          1,
+                      )
+                  else:
+                      # find next function after setActive
+                      pass
+              else:
+                  # insert helper before first export default or before UploadDialog
+                  t = t.replace(marker, helper + '\n' + marker, 1)
+
+          # Call pushToBaobabShared when loadBundle succeeds for non-demo
+          # Common pattern: loadBundle sets state with result
+          if 'pushToBaobabShared(' not in t:
+              # Try to hook inside loadBundle after setBundle / successful import
+              # Look for remembered: true patterns after import
+              # Safer: wrap loadBundle definition
+              import re
+              # find: const loadBundle = ... or function loadBundle
+              m = re.search(r'(const loadBundle\s*=\s*(?:async\s*)?\([^)]*\)\s*=>\s*\{)', t)
+              if not m:
+                  m = re.search(r'(function loadBundle\s*\([^)]*\)\s*\{)', t)
+              if m:
+                  start = m.end()
+                  # insert at start of function body
+                  t = t[:start] + '\n    // baobab shared: will push after successful non-demo load via side effect below\n' + t[start:]
+
+              # After onImport success in UploadDialog path — in import success:
+              old = 'if (!controller.signal.aborted) onImport({ ...result, filename:file.name, isDemo:false, remembered:remember, importedAt:new Date().toISOString() });'
+              new = '''if (!controller.signal.aborted) {
+        const imported = { ...result, filename:file.name, isDemo:false, remembered:remember, importedAt:new Date().toISOString() };
+        onImport(imported);
+        pushToBaobabShared(imported);
+      }'''
+              if old in t:
+                  t = t.replace(old, new, 1)
+
+          # FileView: add shared buttons in help-actions-like area near onDownload
+          if 'טען מהשיתוף' not in t and 'onLoadShared' not in t:
+              # Extend FileView signature and body
+              t = t.replace(
+                  'function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved })',
+                  'function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved, onSaveShared, onLoadShared, sharedSummary })',
+                  1,
+              )
+              # Add buttons near download if present
+              # Search for onDownload button usage
+              if 'onDownload' in t and 'שמור לשיתוף' not in t:
+                  # insert a small card after file-stats or in file-main-card area — use unique string
+                  marker = '<button className="button button-small" onClick={onDownload}'
+                  # if not found try other
+                  if marker not in t:
+                      marker = 'onClick={onDownload}'
+                  # Append shared section in FileView return — before closing section of file-view
+                  # Simpler: inject after FileView's first section open by adding a block via replace of a known unique part
+                  unique = 'נטען בהצלחה · המידע מעובד רק במכשיר שלכם'
+                  if unique in t:
+                      inject = '''נטען בהצלחה · המידע מעובד רק במכשיר שלכם</p></div></div>
+      <div className="baobab-shared-box" style={{marginTop:'16px',padding:'14px 16px',border:'1px solid #e7e8e0',borderRadius:'12px',background:'#fefefb'}}>
+        <div style={{fontSize:'12px',fontWeight:600,color:'#456352',marginBottom:'6px'}}>שיתוף בין אפליקציות (localStorage)</div>
+        <div style={{fontSize:'11px',color:'#82877e',marginBottom:'10px'}}>{sharedSummary || 'אין עדיין נתונים משותפים מכלים אחרים'}</div>
+        <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+          <button type="button" className="button button-small" onClick={onLoadShared} disabled={!hasSharedExport()}>טען מהשיתוף</button>
+          <button type="button" className="button button-small button-primary" onClick={onSaveShared} disabled={bundle?.isDemo}>שמור לשיתוף</button>
+        </div>
+      </div><div style={{display:'none'}}>'''
+                      # This might break HTML - too risky
+                      pass
+
+          # Safer approach: add buttons in UploadDialog near primary open button
+          if 'טען מהשיתוף' not in t:
+              # UploadDialog function
+              old_btn = "<button className=\"button button-primary button-full\" onClick={importFile} disabled={!file || busy}>"
+              if old_btn in t:
+                  extra = '''<div className="baobab-shared-box" style={{margin:'12px 0',padding:'12px',border:'1px solid #e7e8e0',borderRadius:'12px',background:'#fefefb'}}>
+      <div style={{fontSize:'12px',fontWeight:600,color:'#456352',marginBottom:6}}>שיתוף בין אפליקציות</div>
+      <div style={{fontSize:11,color:'#82877e',marginBottom:8}}>{formatSharedSummary(loadSharedExport()) || 'אין נתונים משותפים עדיין'}</div>
+      <button type="button" className="button button-small button-full" style={{marginBottom:8}} disabled={!hasSharedExport() || busy} onClick={() => { const b = loadFromBaobabShared(onImport); if (b) onClose?.(); }}>
+        טען מהשיתוף
+      </button>
+    </div>
+    ''' + old_btn
+                  t = t.replace(old_btn, extra, 1)
+
+          # Also push when loadBundle is used from saved files — hook loadSavedFile / loadBundle
+          # Find: loadBundle( and ensure push for non-demo - in the main App component after setBundle
+          if "pushToBaobabShared(result)" not in t and "pushToBaobabShared(next)" not in t:
+              # pattern from earlier grep: result.remembered = true after save
+              old2 = "const savedItem = saveFileToLocalStorage(next);"
+              if old2 in t:
+                  t = t.replace(old2, old2 + "\n      pushToBaobabShared(next);", 1)
+              # also when opening without remember
+              # after setToast welcome for non-demo
+              old3 = "setToast(result.isDemo ? 'נעים להכיר את משפחת לוין. כל הפרטים בדויים.' : `ברוכים הבאים! ${number(result.data.stats.people)} אנשים מחכים לכם באילן.`);"
+              if old3 in t and 'pushToBaobabShared(result)' not in t:
+                  t = t.replace(old3, "if (!result.isDemo) pushToBaobabShared(result);\n    " + old3, 1)
+
+          p.write_text(t)
+          print('App.jsx size', p.stat().st_size)
+          print('has import', 'baobab-shared-storage' in t)
+          print('has push', 'pushToBaobabShared' in t)
+          print('has load btn', 'טען מהשיתוף' in t)
+          PY
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/App.jsx
+          git status
+          git diff --cached --quiet && echo no-changes && exit 0
+          git commit -m "feat(shared): save/load GEDCOM via baobab localStorage"
+          git push origin HEAD:master
