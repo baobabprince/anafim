@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -44,15 +46,17 @@ jobs:
           touch docs/.nojekyll
 
       - name: Commit and push docs on master
+        continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin master || true
           git add docs
           if git diff --staged --quiet; then
             echo "No changes in docs"
           else
             git commit -m "chore: update docs site build"
-            git push origin HEAD:master
+            git push origin HEAD:master || (git pull --rebase origin master && git push origin HEAD:master)
           fi
 
       - name: Deploy to gh-pages branch
