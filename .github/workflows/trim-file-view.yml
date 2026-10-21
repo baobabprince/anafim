@@ -1,0 +1,26 @@
+name: Trim file view
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/trim-file-view.yml'
+      - 'family-viewer/scripts/trim-file-view.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 family-viewer/scripts/trim-file-view.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/App.jsx
+          git diff --cached --quiet && exit 0
+          git commit -m "ui(file): hide search on file page; remove redundant demo link"
+          git push origin HEAD:master
