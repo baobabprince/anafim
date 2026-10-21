@@ -532,11 +532,6 @@ function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved,
         <div>
           <h3>פרטיות</h3>
           <p>הפענוח מתבצע בדפדפן. במצב מקומי הקובץ לא נשלח לשרת.</p>
-          {bundle.remembered && (
-            <button type="button" className="text-button danger-text" onClick={() => onForget(bundle.id)}>
-              מחיקת העותק השמור מהמכשיר<X size={14} />
-            </button>
-          )}
         </div>
       </div>
 
