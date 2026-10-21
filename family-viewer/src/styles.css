@@ -227,3 +227,49 @@
 .sidebar-cloud .cloud-strip>div{min-width:0}
 .sidebar-cloud .cloud-entry{width:100%;justify-content:center}
 .page-content>.cloud-strip{display:none!important}
+
+/* File view redesign — analysis tools + compact layout */
+.file-tools-section{margin:18px 0 8px}
+.file-tools-heading{margin-bottom:12px}
+.file-tools-heading h3{margin:0 0 4px;font-size:15px;font-weight:700;color:#456352}
+.file-tools-heading p{margin:0;font-size:12px;color:#82877e;line-height:1.45}
+.file-tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:520px){.file-tools-grid{grid-template-columns:1fr}}
+.file-tool-card{
+  display:flex;align-items:center;gap:12px;text-align:right;
+  padding:14px 14px;border-radius:14px;border:1px solid #e7e8e0;
+  background:#fefefb;color:#29392f;cursor:pointer;
+  transition:border-color .15s ease, box-shadow .15s ease, background .15s ease;
+  font:inherit;
+}
+.file-tool-card:hover:not(:disabled){
+  border-color:#c5d0c0;background:#f8faf6;
+  box-shadow:0 4px 14px rgba(69,99,82,.08);
+}
+.file-tool-card:disabled{opacity:.48;cursor:not-allowed}
+.file-tool-icon{
+  flex-shrink:0;width:40px;height:40px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  background:#edf1e9;color:#456352;
+}
+.file-tool-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.file-tool-text strong{font-size:13px;font-weight:700;color:#29392f}
+.file-tool-text span{font-size:11px;color:#82877e;line-height:1.35}
+.file-tool-arrow{flex-shrink:0;opacity:.35;color:#456352}
+.file-tools-hint{margin:10px 0 0;font-size:12px;color:#82877e;line-height:1.45}
+.file-tech-details{
+  margin:16px 0;border:1px solid #e7e8e0;border-radius:14px;
+  background:#fefefb;overflow:hidden;
+}
+.file-tech-details > summary{
+  list-style:none;cursor:pointer;padding:12px 16px;
+  font-size:13px;font-weight:600;color:#456352;
+  user-select:none;
+}
+.file-tech-details > summary::-webkit-details-marker{display:none}
+.file-tech-details > summary::after{content:' ›';opacity:.5}
+.file-tech-details[open] > summary::after{content:' ˅'}
+.file-tech-details .metadata-list{padding:0 16px 14px;margin:0}
+.privacy-card-compact{padding:14px 16px;gap:12px}
+.privacy-card-compact h3{font-size:13px;margin:0 0 4px}
+.privacy-card-compact p{font-size:12px;margin:0;line-height:1.45}
