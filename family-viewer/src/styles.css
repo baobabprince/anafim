@@ -273,3 +273,88 @@
 .privacy-card-compact{padding:14px 16px;gap:12px}
 .privacy-card-compact h3{font-size:13px;margin:0 0 4px}
 .privacy-card-compact p{font-size:12px;margin:0;line-height:1.45}
+
+/* Sidebar Accordion & Submenu */
+.sidebar-accordion {
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-accordion-toggle {
+  justify-content: flex-start;
+  position: relative;
+}
+.sidebar-accordion-toggle .accordion-chevron {
+  margin-inline-start: auto;
+  transition: transform 0.2s ease;
+  color: #8c9782;
+}
+.sidebar-accordion-toggle .accordion-chevron.is-open {
+  transform: rotate(180deg);
+}
+.sidebar-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 6px 8px 10px;
+  margin-top: 2px;
+  margin-bottom: 4px;
+  background: #f7f8f3;
+  border-radius: 10px;
+  border: 1px solid #e7e9df;
+  animation: fadeIn 0.15s ease-out;
+}
+.submenu-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: #899381;
+  padding: 4px 8px 2px;
+  letter-spacing: 0.1px;
+}
+.submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  text-align: right;
+  width: 100%;
+  color: #3b4d3f;
+  background: transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+  border: 0;
+}
+.submenu-item:hover:not(:disabled) {
+  background: #ebf0e4;
+  color: var(--green);
+}
+.submenu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.submenu-icon {
+  flex-shrink: 0;
+  color: #617559;
+}
+.submenu-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.submenu-text strong {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: inherit;
+}
+.submenu-text span {
+  font-size: 10px;
+  color: #7d8873;
+  line-height: 1.2;
+}
+.submenu-arrow {
+  flex-shrink: 0;
+  color: #8c9782;
+  opacity: 0.6;
+}
