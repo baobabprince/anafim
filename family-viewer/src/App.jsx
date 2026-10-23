@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Network, UsersRound, Upload, Search, ChevronDown, ChevronLeft, ChevronRight, ArrowUpLeft, FileText, ShieldCheck, X, Menu, MapPin, CalendarDays, BriefcaseBusiness, Heart, GitFork, HelpCircle, Printer, Download, Check, AlertTriangle, LoaderCircle, Home, Layers3, Leaf, Sprout, LockKeyhole, Info, RotateCcw, Baby, Flower2, CornerDownLeft, MousePointer2, ArrowRight, ArrowLeft, Clock3 } from 'lucide-react';
+import { Network, UsersRound, Upload, Search, ChevronDown, ChevronLeft, ChevronRight, ArrowUpLeft, FileText, ShieldCheck, X, Menu, MapPin, CalendarDays, BriefcaseBusiness, Heart, GitFork, HelpCircle, Printer, Download, Check, AlertTriangle, LoaderCircle, Home, Layers3, Leaf, Sprout, LockKeyhole, Info, RotateCcw, Baby, Flower2, CornerDownLeft, MousePointer2, ArrowRight, ArrowLeft, Clock3, Wrench } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import FamilyView from './FamilyExperience.jsx';
 import CloudAccess from './CloudAccess.jsx';
@@ -630,6 +630,133 @@ function ToolsDialog({ onClose, bundle, onToast }) {
   );
 }
 
+function SidebarToolsMenu({ bundle, onDownload, onToast, closeMobileMenu }) {
+  const [open, setOpen] = useState(false);
+  const canShare = !!(bundle?.raw) && !bundle?.isDemo;
+
+  const analysisTools = [
+    {
+      id: 'genea-net',
+      title: 'ניתוח רשת',
+      desc: 'גרף קשרים וקהילות',
+      url: 'https://baobabprince.github.io/genea-net/',
+      Icon: Network,
+    },
+    {
+      id: 'map',
+      title: 'מפת מקומות',
+      desc: 'מיפוי גיאוגרפי של אירועים',
+      url: 'https://baobabprince.github.io/GEDCOM-map/',
+      Icon: MapPin,
+    },
+    {
+      id: 'diff',
+      title: 'השוואת קבצים',
+      desc: 'השוואה בין שני קבצים',
+      url: 'https://baobabprince.github.io/gedcom-diff-tool/',
+      Icon: GitFork,
+    },
+    {
+      id: 'shield',
+      title: 'פרטיות (GedShield)',
+      desc: 'סימון והגנה על נתונים',
+      url: 'https://baobabprince.github.io/GedShield/',
+      Icon: ShieldCheck,
+    },
+  ];
+
+  const openTool = (url, label) => {
+    if (!canShare) {
+      onToast?.(bundle?.isDemo ? 'במשפחת ההדגמה אין קובץ לייצוא' : 'אין קובץ GEDCOM פתוח');
+      return;
+    }
+    try {
+      pushToBaobabShared(bundle);
+    } catch (err) {
+      onToast?.('לא ניתן לשמור לשיתוף');
+      return;
+    }
+    const sep = url.includes('?') ? '&' : '?';
+    window.open(url + sep + 'baobab=shared', '_blank', 'noopener,noreferrer');
+    onToast?.('נפתח: ' + label);
+    closeMobileMenu?.();
+  };
+
+  const handlePrint = () => {
+    window.print();
+    closeMobileMenu?.();
+  };
+
+  const handleDownload = () => {
+    onDownload?.();
+    closeMobileMenu?.();
+  };
+
+  return (
+    <div className="sidebar-accordion">
+      <button
+        type="button"
+        className={`nav-item sidebar-accordion-toggle ${open ? 'active' : ''}`}
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        aria-controls="sidebar-tools-submenu"
+      >
+        <Wrench size={19} />
+        <span>כלים וניתוח</span>
+        <ChevronDown size={15} className={`accordion-chevron ${open ? 'is-open' : ''}`} />
+      </button>
+
+      {open && (
+        <div id="sidebar-tools-submenu" className="sidebar-submenu" role="region" aria-label="תפריט כלי ניתוח ופעולות">
+          <div className="submenu-section-title">כלי ניתוח מתקדמים</div>
+          {analysisTools.map(({ id, title, desc, url, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className="submenu-item"
+              disabled={!canShare}
+              onClick={() => openTool(url, title)}
+              title={!canShare ? 'זמין רק בקובץ GEDCOM אמיתי' : title}
+            >
+              <Icon size={16} className="submenu-icon" />
+              <div className="submenu-text">
+                <strong>{title}</strong>
+                <span>{desc}</span>
+              </div>
+              <ArrowUpLeft size={13} className="submenu-arrow" />
+            </button>
+          ))}
+
+          <div className="submenu-section-title" style={{ marginTop: 8 }}>פעולות נוספות</div>
+          <button
+            type="button"
+            className="submenu-item"
+            disabled={bundle?.isDemo}
+            onClick={handleDownload}
+          >
+            <Download size={16} className="submenu-icon" />
+            <div className="submenu-text">
+              <strong>הורדת GEDCOM</strong>
+              <span>שמירת הקובץ הנוכחי</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            className="submenu-item"
+            onClick={handlePrint}
+          >
+            <Printer size={16} className="submenu-icon" />
+            <div className="submenu-text">
+              <strong>הדפסה / PDF</strong>
+              <span>הדפסת המבט הנוכחי</span>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HelpDialog({ onClose, onUpload, onDownload, installPrompt, onInstall }) {
   return <Dialog title="קל למצוא את החיבור" subtitle="לא צריך לראות את כל האילן כדי להרגיש חלק ממנו." onClose={onClose} className="help-dialog"><div className="help-steps"><div><span>01</span><section><h3>פותחים את הסיפור המשפחתי</h3><p>מייצאים קובץ GEDCOM מתוכנת אילן היוחסין שלכם, ופותחים אותו כאן. קובצי ‎.ged בגרסאות 5.5, 5.5.1 ו־7 נתמכים.</p></section></div><div><span>02</span><section><h3>אדם אחד, במרכז</h3><p>הסבים והסבתות מופיעים מעל ההורים, בחלוקה לפי הצד במשפחה. האדם הנבחר והוריו מוצגים בפירוט. לחצו על הורה או סב/תא כדי לעבור למבט שלהם, או חפשו שם בשורת החיפוש.</p></section></div><div><span>03</span><section><h3>המשפחה מסביב, בלחיצה</h3><p>פתחו את רשימות בני הזוג, הילדים והאחים כדי לגלות את המעגלים הנוספים. לחיצה על שם מעבירה את המיקוד אליו.</p></section></div></div><div className="android-install-box"><div className="android-install-heading"><strong>שמירת העמוד בדף הבית באנדרואיד</strong></div><p>לגישה מהירה כמו באפליקציה: לחצו בדפדפן Chrome באנדרואיד על תפריט שלוש הנקודות <strong>⋮</strong> ובחרו <strong>״הוספה למסך הבית״</strong> (או ״התקנת האפליקציה״).</p>{installPrompt && <button className="button button-white button-small install-app-btn" onClick={onInstall}>הוספה למסך הבית בלחיצה אחת<Download size={15}/></button>}</div><div className="help-tip"><Printer size={19}/><p>רוצים לשמור רגע מהסיפור? לחצו על ״הדפסה / PDF״ ובחרו ״שמירה כ־PDF״ בחלון ההדפסה.</p></div><div className="help-actions"><button className="button button-primary" onClick={onUpload}><Upload size={17}/>פתיחת הקובץ שלי</button><button className="text-button" onClick={onDownload}><Download size={15}/>הורדת הקובץ הנוכחי</button></div></Dialog>;
 }
@@ -780,6 +907,113 @@ export default function App() {
     const demo=demoBundle();setBundle(demo);setHistory({ids:[DEMO_ROOT],cursor:0});setView('family');setQuery('');setParentFamily('');setModal(null);setMobileMenu(false);
   };
   const navItems = [{id:'family',icon:Network},{id:'people',icon:UsersRound},{id:'file',icon:FileText}];
-  return <div className="app-shell"><a href="#main-content" className="skip-link">דילוג לתוכן</a>{mobileMenu && <div className="sidebar-backdrop" onClick={() => setMobileMenu(false)}/>}<aside ref={menuRef} id="main-sidebar" className={`sidebar ${mobileMenu ? 'sidebar-open' : ''}`} aria-label="תפריט ראשי"><div className="sidebar-top"><button className="brand-button" onClick={() => changeView('family')} aria-label="ענפים — חזרה למבט המשפחתי"><Brand/></button><button className="icon-button sidebar-close" onClick={() => setMobileMenu(false)} aria-label="סגירת תפריט"><X size={20}/></button></div><button className="button button-primary sidebar-upload" onClick={() => { setMobileMenu(false); setModal('upload'); }}><Upload size={18}/><span>פתיחת קובץ GEDCOM</span><span className="upload-plus">+</span></button><div className="nav-label">הסיפור המשפחתי</div><nav className="main-nav">{navItems.map(({id,icon:Icon}) => <button className={`nav-item ${view === id ? 'active' : ''}`} key={id} onClick={() => changeView(id)} aria-current={view === id ? 'page' : undefined}><Icon size={19}/><span>{viewNames[id]}</span>{id === 'people' ? <span className="nav-count">{number(bundle.data.stats.people)}</span> : view === id ? <span className="active-nav-dot"/> : null}</button>)}</nav><div className="sidebar-separator"/><button className="nav-item subtle-nav" onClick={() => { setMobileMenu(false); setModal('help'); }}><HelpCircle size={19}/><span>נעים להכיר את ענפים</span><ArrowUpLeft size={14}/></button><div className="sidebar-spacer"/><section className="fx-recents" aria-label="אנשים שביקרתם באילן"><div className="fx-recents-heading"><Clock3 size={13}/><span>לאחרונה באילן</span></div>{[...new Set(history.ids.slice(0,history.cursor+1).reverse())].slice(0,3).map(id=>bundle.data.people[id]).filter(Boolean).map(p=><button key={p.id} className="fx-visited-person" onClick={()=>selectPerson(p.id)}><Avatar person={p} size="sm"/><span><strong dir="auto">{p.name}</strong><small>{lifeLabel(p)}</small></span>{p.id === person.id ? <i className="fx-visited-dot"/> : <ChevronLeft size={12}/>}</button>)}</section><div className="sidebar-file" onClick={() => changeView('file')} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); changeView('file'); } }}><span className="sidebar-file-icon"><FileText size={21}/></span><div><strong title={demoSurname}>{demoSurname}</strong><span>{bundle.isDemo ? 'אילן לדוגמה' : 'הקובץ שלכם'}<i/> {number(bundle.data.stats.generations)} דורות</span></div><ChevronLeft size={15}/></div><div className="sidebar-cloud"><CloudAccess Dialog={Dialog} bundle={bundle} selectedId={person.id} onApplySnapshot={applyCloudSnapshot} onClear={clearCloudView} onUpload={()=>setModal('upload')} isModalOpen={!!modal||mobileMenu}/></div><div className="sidebar-privacy"><ShieldCheck size={14}/><span>המשפחה שלכם. לעיניים שלכם.</span></div></aside>
-    <main className="main-content" id="main-content"><header className="topbar"><div className="desktop-breadcrumb"><span>סביבת העבודה</span><ChevronLeft size={14}/><strong>{viewNames[view]}</strong></div><div className="mobile-brand"><button className="icon-button" onClick={() => setMobileMenu(true)} aria-expanded={mobileMenu} aria-controls="main-sidebar" aria-label="פתיחת תפריט"><Menu size={22}/></button><Brand compact/></div><div className="topbar-left"><button className={`demo-badge ${!bundle.isDemo ? 'real-data-badge' : ''}`} onClick={() => changeView('file')}><span/>{bundle.isDemo ? 'מציגים משפחה לדוגמה' : bundle.remembered ? 'נשמר במכשיר הזה' : 'הקובץ שלכם, באופן פרטי'}<ChevronDown size={12}/></button><span className="topbar-divider"/><button className="icon-button help-top" onClick={() => setModal('help')} aria-label="עזרה והסבר"><HelpCircle size={20}/></button></div></header><div className="page-content"><section className="page-intro"><div><div className="intro-eyebrow"><span className="eyebrow-line"/>{view === 'family' ? 'שורשים. אנשים. סיפורים.' : view === 'people' ? 'הסיפור הוא האנשים' : 'מקום אחד לכל הענפים'}</div><h1>{view === 'family' ? <>המשפחה שלכם, <em>בתמונה אחת.</em></> : view === 'people' ? <>פנים רבות. <em>משפחה אחת.</em></> : <>כל סיפור <em>מתחיל בחיבור.</em></>}</h1><p>{view === 'family' ? 'אנשים, מקומות וזיכרונות — הסיפור המשפחתי במבט קרוב.' : view === 'people' ? 'חפשו שם מוכר, או גלו סיפור שעוד לא הכרתם.' : 'כל המידע על האילן שלכם, והדרך שבה אנחנו שומרים עליו.'}</p></div><div className="intro-stats" aria-label="נתוני האילן">{[[bundle.data.stats.people,'אנשים'],[bundle.data.stats.families,'משפחות'],[bundle.data.stats.generations,'דורות']].map(([n,label]) => <div key={label}><strong>{number(n)}</strong><span>{label}</span></div>)}</div></section>{view !== 'file' && <SearchBar data={bundle.data} query={query} setQuery={setQuery} onSelect={selectPerson} onDirectory={() => changeView('people')}/>}{view === 'family' && <div className="focus-breadcrumb"><button className="text-button" onClick={resetSelection} aria-label="חזרה לאדם הראשון באילן"><Home size={14}/><span>{demoSurname}</span></button><ChevronLeft size={12}/><span>{person.name}</span>{!bundle.isDemo && <span className="source-file-label"><ShieldCheck size={12}/>GEDCOM · פענוח מקומי</span>}</div>}{view === 'family' ? <FamilyView data={bundle.data} person={person} bundle={bundle} onSelect={selectPerson} parentFamily={parentFamily} setParentFamily={setParentFamily} history={history} onHistory={goHistory} onHelp={() => setModal('help')}/> : view === 'people' ? <PeopleView data={bundle.data} query={query} setQuery={setQuery} onSelect={selectPerson}/> : <FileView bundle={bundle} onUpload={() => setModal('upload')} onDownload={downloadGedcom} onDemo={() => loadBundle(demoBundle())} onForget={forget} onLoadSaved={loadSavedFile} onToast={setToast}/>}<footer className="workspace-footer"><span><Sprout size={15}/>לכל משפחה יש דרך. לכל אדם יש מקום.</span><span><ShieldCheck size={13}/>פענוח הנתונים מתבצע במכשיר שלכם</span></footer></div></main><nav className="mobile-bottom-nav" aria-label="ניווט מהיר"><button className={view === 'family' ? 'selected' : ''} onClick={() => changeView('family')}><Network size={21}/><span>המשפחה</span></button><button className={view === 'people' ? 'selected' : ''} onClick={() => changeView('people')}><UsersRound size={21}/><span>כל האנשים</span></button><button className="mobile-upload" onClick={() => setModal('upload')}><span><Upload size={20}/></span><span>פתיחת קובץ</span></button><button className={view === 'file' ? 'selected' : ''} onClick={() => changeView('file')}><FileText size={21}/><span>פרטי הקובץ</span></button></nav>{modal === 'upload' && <UploadDialog onClose={() => setModal(null)} onImport={loadBundle} onDemo={() => loadBundle(demoBundle())}/>} {modal === 'tools' && <ToolsDialog onClose={() => setModal(null)} bundle={bundle} onToast={setToast} />} {modal === 'help' && <HelpDialog onClose={() => setModal(null)} onUpload={() => setModal('upload')} onDownload={downloadGedcom} installPrompt={installPrompt} onInstall={handleInstallClick}/>} {toast && <div className="toast" role="status"><span className="toast-icon"><Check size={17}/></span><span>{toast}</span><button onClick={() => setToast('')} aria-label="סגירת הודעה"><X size={16}/></button></div>}<div className="print-footer">ענפים · {demoSurname} · {new Date().toLocaleDateString('he-IL')} · {bundle.isDemo ? 'נתוני הדגמה בדויים' : 'מידע פרטי מתוך קובץ GEDCOM'}</div></div>;
+  return (
+    <div className="app-shell">
+      <a href="#main-content" className="skip-link">דילוג לתוכן</a>
+      {mobileMenu && <div className="sidebar-backdrop" onClick={() => setMobileMenu(false)}/>}
+      <aside ref={menuRef} id="main-sidebar" className={`sidebar ${mobileMenu ? 'sidebar-open' : ''}`} aria-label="תפריט ראשי">
+        <div className="sidebar-top">
+          <button className="brand-button" onClick={() => changeView('family')} aria-label="ענפים — חזרה למבט המשפחתי"><Brand/></button>
+          <button className="icon-button sidebar-close" onClick={() => setMobileMenu(false)} aria-label="סגירת תפריט"><X size={20}/></button>
+        </div>
+        <button className="button button-primary sidebar-upload" onClick={() => { setMobileMenu(false); setModal('upload'); }}>
+          <Upload size={18}/><span>פתיחת קובץ GEDCOM</span><span className="upload-plus">+</span>
+        </button>
+        <div className="nav-label">הסיפור המשפחתי</div>
+        <nav className="main-nav">
+          {navItems.map(({id,icon:Icon}) => (
+            <button className={`nav-item ${view === id ? 'active' : ''}`} key={id} onClick={() => changeView(id)} aria-current={view === id ? 'page' : undefined}>
+              <Icon size={19}/><span>{viewNames[id]}</span>
+              {id === 'people' ? <span className="nav-count">{number(bundle.data.stats.people)}</span> : view === id ? <span className="active-nav-dot"/> : null}
+            </button>
+          ))}
+          <SidebarToolsMenu bundle={bundle} onDownload={downloadGedcom} onToast={setToast} closeMobileMenu={() => setMobileMenu(false)} />
+        </nav>
+        <div className="sidebar-separator"/>
+        <button className="nav-item subtle-nav" onClick={() => { setMobileMenu(false); setModal('help'); }}>
+          <HelpCircle size={19}/><span>נעים להכיר את ענפים</span><ArrowUpLeft size={14}/>
+        </button>
+        <div className="sidebar-spacer"/>
+        <section className="fx-recents" aria-label="אנשים שביקרתם באילן">
+          <div className="fx-recents-heading"><Clock3 size={13}/><span>לאחרונה באילן</span></div>
+          {[...new Set(history.ids.slice(0,history.cursor+1).reverse())].slice(0,3).map(id=>bundle.data.people[id]).filter(Boolean).map(p=>(
+            <button key={p.id} className="fx-visited-person" onClick={()=>selectPerson(p.id)}>
+              <Avatar person={p} size="sm"/>
+              <span><strong dir="auto">{p.name}</strong><small>{lifeLabel(p)}</small></span>
+              {p.id === person.id ? <i className="fx-visited-dot"/> : <ChevronLeft size={12}/>}
+            </button>
+          ))}
+        </section>
+        <div className="sidebar-file" onClick={() => changeView('file')} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); changeView('file'); } }}>
+          <span className="sidebar-file-icon"><FileText size={21}/></span>
+          <div><strong title={demoSurname}>{demoSurname}</strong><span>{bundle.isDemo ? 'אילן לדוגמה' : 'הקובץ שלכם'}<i/> {number(bundle.data.stats.generations)} דורות</span></div>
+          <ChevronLeft size={15}/>
+        </div>
+        <div className="sidebar-cloud">
+          <CloudAccess Dialog={Dialog} bundle={bundle} selectedId={person.id} onApplySnapshot={applyCloudSnapshot} onClear={clearCloudView} onUpload={()=>setModal('upload')} isModalOpen={!!modal||mobileMenu}/>
+        </div>
+        <div className="sidebar-privacy"><ShieldCheck size={14}/><span>המשפחה שלכם. לעיניים שלכם.</span></div>
+      </aside>
+      <main className="main-content" id="main-content">
+        <header className="topbar">
+          <div className="desktop-breadcrumb"><span>סביבת העבודה</span><ChevronLeft size={14}/><strong>{viewNames[view]}</strong></div>
+          <div className="mobile-brand">
+            <button className="icon-button" onClick={() => setMobileMenu(true)} aria-expanded={mobileMenu} aria-controls="main-sidebar" aria-label="פתיחת תפריט"><Menu size={22}/></button>
+            <Brand compact/>
+          </div>
+          <div className="topbar-left">
+            <button className={`demo-badge ${!bundle.isDemo ? 'real-data-badge' : ''}`} onClick={() => changeView('file')}>
+              <span/>{bundle.isDemo ? 'מציגים משפחה לדוגמה' : bundle.remembered ? 'נשמר במכשיר הזה' : 'הקובץ שלכם, באופן פרטי'}<ChevronDown size={12}/>
+            </button>
+            <span className="topbar-divider"/>
+            <button className="icon-button help-top" onClick={() => setModal('help')} aria-label="עזרה והסבר"><HelpCircle size={20}/></button>
+          </div>
+        </header>
+        <div className="page-content">
+          <section className="page-intro">
+            <div>
+              <div className="intro-eyebrow"><span className="eyebrow-line"/>{view === 'family' ? 'שורשים. אנשים. סיפורים.' : view === 'people' ? 'הסיפור הוא האנשים' : 'מקום אחד לכל הענפים'}</div>
+              <h1>{view === 'family' ? <>המשפחה שלכם, <em>בתמונה אחת.</em></> : view === 'people' ? <>פנים רבות. <em>משפחה אחת.</em></> : <>כל סיפור <em>מתחיל בחיבור.</em></>}</h1>
+              <p>{view === 'family' ? 'אנשים, מקומות וזיכרונות — הסיפור המשפחתי במבט קרוב.' : view === 'people' ? 'חפשו שם מוכר, או גלו סיפור שעוד לא הכרתם.' : 'כל המידע על האילן שלכם, והדרך שבה אנחנו שומרים עליו.'}</p>
+            </div>
+            <div className="intro-stats" aria-label="נתוני האילן">
+              {[[bundle.data.stats.people,'אנשים'],[bundle.data.stats.families,'משפחות'],[bundle.data.stats.generations,'דורות']].map(([n,label]) => (
+                <div key={label}><strong>{number(n)}</strong><span>{label}</span></div>
+              ))}
+            </div>
+          </section>
+          {view !== 'file' && <SearchBar data={bundle.data} query={query} setQuery={setQuery} onSelect={selectPerson} onDirectory={() => changeView('people')}/>}
+          {view === 'family' && (
+            <div className="focus-breadcrumb">
+              <button className="text-button" onClick={resetSelection} aria-label="חזרה לאדם הראשון באילן"><Home size={14}/><span>{demoSurname}</span></button>
+              <ChevronLeft size={12}/><span>{person.name}</span>
+              {!bundle.isDemo && <span className="source-file-label"><ShieldCheck size={12}/>GEDCOM · פענוח מקומי</span>}
+            </div>
+          )}
+          {view === 'family' ? (
+            <FamilyView data={bundle.data} person={person} bundle={bundle} onSelect={selectPerson} parentFamily={parentFamily} setParentFamily={setParentFamily} history={history} onHistory={goHistory} onHelp={() => setModal('help')}/>
+          ) : view === 'people' ? (
+            <PeopleView data={bundle.data} query={query} setQuery={setQuery} onSelect={selectPerson}/>
+          ) : (
+            <FileView bundle={bundle} onUpload={() => setModal('upload')} onDownload={downloadGedcom} onDemo={() => loadBundle(demoBundle())} onForget={forget} onLoadSaved={loadSavedFile} onToast={setToast}/>
+          )}
+          <footer className="workspace-footer">
+            <span><Sprout size={15}/>לכל משפחה יש דרך. לכל אדם יש מקום.</span>
+            <span><ShieldCheck size={13}/>פענוח הנתונים מתבצע במכשיר שלכם</span>
+          </footer>
+        </div>
+      </main>
+      <nav className="mobile-bottom-nav" aria-label="ניווט מהיר">
+        <button className={view === 'family' ? 'selected' : ''} onClick={() => changeView('family')}><Network size={21}/><span>המשפחה</span></button>
+        <button className={view === 'people' ? 'selected' : ''} onClick={() => changeView('people')}><UsersRound size={21}/><span>כל האנשים</span></button>
+        <button className="mobile-upload" onClick={() => setModal('upload')}><span><Upload size={20}/></span><span>פתיחת קובץ</span></button>
+        <button className={view === 'file' ? 'selected' : ''} onClick={() => changeView('file')}><FileText size={21}/><span>פרטי הקובץ</span></button>
+      </nav>
+      {modal === 'upload' && <UploadDialog onClose={() => setModal(null)} onImport={loadBundle} onDemo={() => loadBundle(demoBundle())}/>}
+      {modal === 'tools' && <ToolsDialog onClose={() => setModal(null)} bundle={bundle} onToast={setToast} />}
+      {modal === 'help' && <HelpDialog onClose={() => setModal(null)} onUpload={() => setModal('upload')} onDownload={downloadGedcom} installPrompt={installPrompt} onInstall={handleInstallClick}/>}
+      {toast && <div className="toast" role="status"><span className="toast-icon"><Check size={17}/></span><span>{toast}</span><button onClick={() => setToast('')} aria-label="סגירת הודעה"><X size={16}/></button></div>}
+      <div className="print-footer">ענפים · {demoSurname} · {new Date().toLocaleDateString('he-IL')} · {bundle.isDemo ? 'נתוני הדגמה בדויים' : 'מידע פרטי מתוך קובץ GEDCOM'}</div>
+    </div>
+  );
 }
