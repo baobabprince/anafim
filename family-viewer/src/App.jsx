@@ -54,7 +54,40 @@ function loadFromBaobabShared(onImport) {
 }
 
 const OLD_CACHE_KEY = 'anafim-gedcom-v1';
-const APP_VERSION = '2.0.1';
+const APP_VERSION = '2.0.2';
+
+function getUrlDeepLink() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const id = (params.get('id') || '').trim();
+    const q = (params.get('q') || params.get('person') || params.get('name') || '').trim();
+    return { id, q };
+  } catch {
+    return { id: '', q: '' };
+  }
+}
+
+/** Resolve a person id from deep-link id or name query. */
+function findPersonIdFromDeepLink(data, { id, q }) {
+  if (!data?.people) return null;
+  if (id && data.people[id]) return id;
+  if (!q) return null;
+  const nq = normalize(q);
+  const terms = nq.split(/\s+/).filter(Boolean);
+  if (!terms.length) return null;
+  for (const pid of data.order) {
+    const person = data.people[pid];
+    if (normalize(person.name) === nq) return pid;
+  }
+  const hits = data.order.filter(pid => terms.every(t => data.people[pid].search.includes(t)));
+  if (!hits.length) return null;
+  if (hits.length === 1) return hits[0];
+  const preferred = hits.find(pid => normalize(data.people[pid].name).startsWith(nq));
+  if (preferred) return preferred;
+  hits.sort((a, b) => data.people[a].name.length - data.people[b].name.length);
+  return hits[0];
+}
+
 const number = n => n.toLocaleString('he-IL');
 const viewNames = { family:'מבט משפחתי', people:'כל האנשים', file:'פרטי הקובץ' };
 
@@ -785,6 +818,23 @@ export default function App() {
     }
     setInstallPrompt(null);
   };
+
+  const deepLinkApplied = useRef(false);
+  useEffect(() => {
+    if (deepLinkApplied.current) return;
+    const link = getUrlDeepLink();
+    if (!link.id && !link.q) return;
+    const pid = findPersonIdFromDeepLink(bundle.data, link);
+    if (!pid) return;
+    deepLinkApplied.current = true;
+    setHistory({ ids: [pid], cursor: 0 });
+    setView('family');
+    setModal(null);
+    setParentFamily('');
+    const name = bundle.data.people[pid]?.name;
+    if (name) setToast(`מציגים את ${name}`);
+  }, [bundle]);
+
   const person = bundle.data.people[history.ids[history.cursor]] || bundle.data.people[bundle.data.order[0]];
   const demoSurname = bundle.isDemo ? 'משפחת לוין' : bundle.filename.replace(/\.(ged|gedcom|txt)$/i,'').replace(/[_-]/g,' ');
   useEffect(() => { document.title = `${view === 'family' ? person.name : viewNames[view]} · ענפים`; }, [person.name,view]);
