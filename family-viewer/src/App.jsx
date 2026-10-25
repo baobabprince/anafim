@@ -999,10 +999,10 @@ export default function App() {
           <div><strong title={demoSurname}>{demoSurname}</strong><span>{bundle.isDemo ? 'אילן לדוגמה' : 'הקובץ שלכם'}<i/> {number(bundle.data.stats.generations)} דורות</span></div>
           <ChevronLeft size={15}/>
         </div>
-        <div className="sidebar-cloud">
+        <div className="sidebar-privacy"><ShieldCheck size={14}/><span>המשפחה שלכם. לעיניים שלכם.</span></div>
+        <div className="sidebar-cloud sidebar-cloud-secondary">
           <CloudAccess Dialog={Dialog} bundle={bundle} selectedId={person.id} onApplySnapshot={applyCloudSnapshot} onClear={clearCloudView} onUpload={()=>setModal('upload')} isModalOpen={!!modal||mobileMenu}/>
         </div>
-        <div className="sidebar-privacy"><ShieldCheck size={14}/><span>המשפחה שלכם. לעיניים שלכם.</span></div>
       </aside>
       <main className="main-content" id="main-content">
         <header className="topbar">
