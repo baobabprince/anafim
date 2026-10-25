@@ -1,0 +1,23 @@
+name: Fix privacy note
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/fix-privacy-note.py
+      - .github/workflows/fix-privacy-note.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/fix-privacy-note.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/App.jsx
+          git diff --cached --quiet && echo no-changes && exit 0
+          git commit -m "copy: clarify privacy note for optional encrypted sync"
+          git push origin HEAD:master
