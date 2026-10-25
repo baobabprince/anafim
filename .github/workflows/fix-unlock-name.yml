@@ -1,0 +1,23 @@
+name: Fix unlockPassword name clash
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/fix-unlock-name.py
+      - .github/workflows/fix-unlock-name.yml
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/fix-unlock-name.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/CloudAccess.jsx
+          git diff --cached --quiet && echo no-changes && exit 0
+          git commit -m "fix(vault): rename openWithVaultPassword to avoid state name clash"
+          git push origin HEAD:master
