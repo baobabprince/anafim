@@ -564,7 +564,7 @@ function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved,
         <ShieldCheck size={22} />
         <div>
           <h3>פרטיות</h3>
-          <p>הפענוח מתבצע בדפדפן. במצב מקומי הקובץ לא נשלח לשרת.</p>
+          <p>הפענוח תמיד בדפדפן. במצב מקומי הקובץ נשאר אצלכם. אם מפעילים סנכרון — לענן עולה רק עותק מוצפן, בלי מפתח הפענוח.</p>
         </div>
       </div>
 
