@@ -34,9 +34,43 @@ jobs:
         working-directory: family-viewer
         run: npm ci
 
-      - name: Build
+      - name: Build with public Supabase config
         working-directory: family-viewer
-        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]; then
+            echo "::warning::Missing VITE_SUPABASE_URL or VITE_SUPABASE_PUBLISHABLE_KEY secret — cloud login will stay unconfigured for end users."
+          else
+            echo "Cloud config present (URL host: $(python3 -c 'import os; from urllib.parse import urlparse; print(urlparse(os.environ[\"VITE_SUPABASE_URL\"]).hostname or \"?\")'))"
+          fi
+          npm run build
+          python3 << 'PY'
+          import json, os, pathlib, re
+          url = (os.environ.get("VITE_SUPABASE_URL") or "").strip()
+          key = (os.environ.get("VITE_SUPABASE_PUBLISHABLE_KEY") or "").strip()
+          if not url or not key:
+              print("skip HTML inject: secrets not set")
+              raise SystemExit(0)
+          payload = json.dumps({"url": url, "key": key}, ensure_ascii=False)
+          script = f'<script id="anafim-cloud-config" type="application/json">{payload}</script>'
+          path = pathlib.Path("dist/index.html")
+          if not path.exists():
+              raise SystemExit("dist/index.html missing after build")
+          html = path.read_text(encoding="utf-8")
+          if 'id="anafim-cloud-config"' in html:
+              html = re.sub(
+                  r'<script id="anafim-cloud-config"[^>]*>[\s\S]*?</script>',
+                  script,
+                  html,
+                  count=1,
+              )
+          else:
+              html = html.replace('<div id="root"></div>', script + '\n    <div id="root"></div>', 1)
+          path.write_text(html, encoding="utf-8")
+          print("injected anafim-cloud-config into dist/index.html")
+          PY
 
       - name: Prepare docs folder
         run: |

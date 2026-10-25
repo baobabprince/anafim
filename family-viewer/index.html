@@ -15,6 +15,12 @@
     <title>ענפים — הסיפור המשפחתי שלכם</title>
   </head>
   <body>
+    <!--
+      Public Supabase config only (URL + anon/publishable key).
+      Production build injects real values from GitHub Actions secrets
+      (VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY). Leave empty in source.
+      End users never enter these — they only sign in with Google.
+    -->
     <script id="anafim-cloud-config" type="application/json">{"url":"","key":""}</script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
