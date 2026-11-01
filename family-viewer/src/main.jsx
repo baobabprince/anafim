@@ -7,6 +7,7 @@ import './styles.css';
 import './family.css';
 import './ancestry.css';
 import './cloud.css';
+import './i18n/i18n.css';
 
 initI18n();
 
