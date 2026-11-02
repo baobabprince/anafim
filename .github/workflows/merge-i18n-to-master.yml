@@ -1,0 +1,23 @@
+name: Merge i18n to master
+on:
+  workflow_dispatch:
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge feature/i18n-en into master and push
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin master feature/i18n-en
+          git checkout master
+          git pull origin master
+          git merge origin/feature/i18n-en -m "Merge feature/i18n-en: English UI + LTR + 2-day vault lock"
+          git push origin master
