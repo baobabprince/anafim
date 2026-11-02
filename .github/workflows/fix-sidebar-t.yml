@@ -1,0 +1,40 @@
+name: Fix SidebarToolsMenu t()
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fix-sidebar-t.yml'
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch App.jsx
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          from pathlib import Path
+          path = Path('family-viewer/src/App.jsx')
+          src = path.read_text(encoding='utf-8')
+          old = """function SidebarToolsMenu({ bundle, onDownload, onToast, closeMobileMenu }) {
+  const [open, setOpen] = useState(false);
+  const canShare = !!(bundle?.raw) && !bundle?.isDemo;"""
+          new = """function SidebarToolsMenu({ bundle, onDownload, onToast, closeMobileMenu }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const canShare = !!(bundle?.raw) && !bundle?.isDemo;"""
+          if 'const { t } = useI18n();' in src[src.find('function SidebarToolsMenu'):src.find('function SidebarToolsMenu')+200]:
+              print('already fixed')
+          elif old not in src:
+              raise SystemExit('anchor not found')
+          else:
+              path.write_text(src.replace(old, new, 1), encoding='utf-8')
+              print('patched')
+          PY
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "fix: SidebarToolsMenu useI18n so t is defined"
+          file_pattern: family-viewer/src/App.jsx
