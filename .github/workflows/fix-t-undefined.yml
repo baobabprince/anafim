@@ -1,0 +1,42 @@
+name: Fix t is not defined
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - name: Add useI18n to SidebarToolsMenu
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          path = Path('family-viewer/src/App.jsx')
+          src = path.read_text(encoding='utf-8')
+          needle = 'function SidebarToolsMenu({ bundle, onDownload, onToast, closeMobileMenu }) {\n  const [open, setOpen] = useState(false);'
+          insert = 'function SidebarToolsMenu({ bundle, onDownload, onToast, closeMobileMenu }) {\n  const { t } = useI18n();\n  const [open, setOpen] = useState(false);'
+          if 'function SidebarToolsMenu' not in src:
+              raise SystemExit('SidebarToolsMenu missing')
+          region = src[src.find('function SidebarToolsMenu'):src.find('function SidebarToolsMenu')+300]
+          if 'const { t } = useI18n()' in region:
+              print('already fixed')
+          elif needle not in src:
+              raise SystemExit('needle not found: ' + repr(region[:200]))
+          else:
+              path.write_text(src.replace(needle, insert, 1), encoding='utf-8')
+              print('patched ok')
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/App.jsx
+          if git diff --staged --quiet; then
+            echo "No change"
+          else
+            git commit -m "fix: SidebarToolsMenu calls useI18n (t is defined)"
+            git push origin master
+          fi
