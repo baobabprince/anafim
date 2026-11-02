@@ -666,6 +666,7 @@ function ToolsDialog({ onClose, bundle, onToast }) {
 }
 
 function SidebarToolsMenu({ bundle, onDownload, onToast, closeMobileMenu }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const canShare = !!(bundle?.raw) && !bundle?.isDemo;
 
