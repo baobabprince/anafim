@@ -1,0 +1,93 @@
+name: Assemble i18n restore files
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/i18n-en]
+    paths:
+      - '.github/workflows/assemble-i18n-restore.yml'
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/i18n-en
+
+      - name: Restore CloudAccess.jsx (2-day idle lock)
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://raw.githubusercontent.com/baobabprince/anafim/0635342de1f54deda4e43b181c8ac8cf583d3686/family-viewer/src/CloudAccess.jsx" \
+            -o family-viewer/src/CloudAccess.jsx
+          sed -i 's/10\*60\*1000/2*24*60*60*1000/' family-viewer/src/CloudAccess.jsx
+          sed -i 's/נעילה אוטומטית אחרי 10 דקות ללא פעילות/נעילה אוטומטית אחרי יומיים ללא פעילות/' family-viewer/src/CloudAccess.jsx
+          grep -q '2\*24\*60\*60\*1000' family-viewer/src/CloudAccess.jsx
+          wc -c family-viewer/src/CloudAccess.jsx
+
+      - name: Restore App.jsx and apply i18n wiring
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          import urllib.request
+          url = "https://raw.githubusercontent.com/baobabprince/anafim/ba693496fc6a46b8a052bb3fc8302fb94fbed2c6/family-viewer/src/App.jsx"
+          src = urllib.request.urlopen(url).read().decode()
+
+          old_import = "import { parseGedcom, parseGedcomAsync, getRelations, formatDate, lifeLabel, initials, normalize, getYear, pedigreeLabel } from './gedcom.js';"
+          new_import = old_import + "\nimport { useI18n } from './i18n/I18nContext.jsx';\nimport LangToggle from './i18n/LangToggle.jsx';"
+          assert old_import in src
+          src = src.replace(old_import, new_import, 1)
+
+          old_brand = """function Brand({ compact = false }) {\n  return <div className={`brand ${compact ? 'brand-compact' : ''}`}><span className=\"brand-mark\"><svg viewBox=\"0 0 44 44\" fill=\"none\" aria-hidden=\"true\"><path d=\"M22 34V17m0 9L12 16m10 7L32 13\" stroke=\"currentColor\" strokeWidth=\"2\" strokeLinecap=\"round\"/><path d=\"M12 18C4 17 5 9 5 9s9 0 9 7m18-1c8-1 7-9 7-9s-9 1-9 8M22 19c-7-4-4-12-4-12s8 3 6 10\" fill=\"currentColor\"/></svg></span><div><span className=\"brand-name\">ענפים<span className=\"brand-dot\">.</span></span>{!compact && <span className=\"brand-tagline\">הסיפור שמחבר בינינו</span>}</div></div>;\n}"""
+          new_brand = """function Brand({ compact = false }) {\n  const { t } = useI18n();\n  return <div className={`brand ${compact ? 'brand-compact' : ''}`}><span className=\"brand-mark\"><svg viewBox=\"0 0 44 44\" fill=\"none\" aria-hidden=\"true\"><path d=\"M22 34V17m0 9L12 16m10 7L32 13\" stroke=\"currentColor\" strokeWidth=\"2\" strokeLinecap=\"round\"/><path d=\"M12 18C4 17 5 9 5 9s9 0 9 7m18-1c8-1 7-9 7-9s-9 1-9 8M22 19c-7-4-4-12-4-12s8 3 6 10\" fill=\"currentColor\"/></svg></span><div><span className=\"brand-name\">{t('brand.name')}<span className=\"brand-dot\">.</span></span>{!compact && <span className=\"brand-tagline\">{t('brand.tagline')}</span>}</div></div>;\n}"""
+          assert old_brand in src
+          src = src.replace(old_brand, new_brand, 1)
+
+          old_num = "const number = n => n.toLocaleString('he-IL');\nconst viewNames = { family:'מבט משפחתי', people:'כל האנשים', file:'פרטי הקובץ' };"
+          new_num = "const number = n => n.toLocaleString((typeof document !== 'undefined' && document.documentElement.lang === 'en') ? 'en-GB' : 'he-IL');"
+          assert old_num in src
+          src = src.replace(old_num, new_num, 1)
+
+          anchor = "export default function App() {\n  const [bundle,setBundle] = useState(initialBundle);"
+          insert = """export default function App() {\n  const { t, lang } = useI18n();\n  const viewNames = { family: t('nav.family'), people: t('nav.people'), file: t('nav.file') };\n  const [bundle,setBundle] = useState(initialBundle);"""
+          assert anchor in src
+          src = src.replace(anchor, insert, 1)
+
+          old_side = """        <div className=\"sidebar-top\">\n          <button className=\"brand-button\" onClick={() => changeView('family')} aria-label=\"ענפים — חזרה למבט המשפחתי\"><Brand/></button>\n          <button className=\"icon-button sidebar-close\" onClick={() => setMobileMenu(false)} aria-label=\"סגירת תפריט\"><X size={20}/></button>\n        </div>"""
+          new_side = """        <div className=\"sidebar-top\">\n          <button className=\"brand-button\" onClick={() => changeView('family')} aria-label={t('brand.homeAria')}><Brand/></button>\n          <LangToggle />\n          <button className=\"icon-button sidebar-close\" onClick={() => setMobileMenu(false)} aria-label={t('nav.closeMenu')}><X size={20}/></button>\n        </div>"""
+          assert old_side in src
+          src = src.replace(old_side, new_side, 1)
+
+          replacements = [
+              ('aria-label="תפריט ראשי"', "aria-label={t('nav.mainMenu')}"),
+              ('aria-label="פתיחת תפריט"', "aria-label={t('nav.openMenu')}"),
+              ('<div className="nav-label">הסיפור המשפחתי</div>', '<div className="nav-label">{t(\'nav.story\')}</div>'),
+              ('<span>כלים וניתוח</span>', '<span>{t(\'nav.tools\')}</span>'),
+              ('aria-label="תפריט כלי ניתוח ופעולות"', "aria-label={t('nav.toolsMenu')}"),
+              ('<div className="sidebar-privacy"><ShieldCheck size={14}/><span>המשפחה שלכם. לעיניים שלכם.</span></div>',
+               '<div className="sidebar-privacy"><ShieldCheck size={14}/><span>{t(\'nav.privacyLine\')}</span></div>'),
+              ('<span>פתיחת קובץ GEDCOM</span>', '<span>{t(\'nav.upload\')}</span>'),
+              ('aria-label="עזרה והסבר"', "aria-label={t('nav.help')}"),
+          ]
+          for a, b in replacements:
+              if a not in src:
+                  raise SystemExit(f'missing replacement target: {a[:60]}')
+              src = src.replace(a, b)
+
+          src = src.replace(
+              '<a href="#main-content" className="skip-link">דילוג לתוכן</a>',
+              "<a href=\"#main-content\" className=\"skip-link\">{lang==='he'?'דילוג לתוכן':'Skip to content'}</a>",
+          )
+
+          assert 'LangToggle' in src
+          open('family-viewer/src/App.jsx', 'w').write(src)
+          print('App.jsx written', len(src))
+          PY
+
+      - name: Commit restored sources
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Restore App.jsx (i18n) and CloudAccess.jsx (2-day lock) via CI"
+          branch: feature/i18n-en
+          file_pattern: family-viewer/src/App.jsx family-viewer/src/CloudAccess.jsx

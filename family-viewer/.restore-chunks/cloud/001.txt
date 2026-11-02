@@ -1,0 +1,15 @@
+blicKey]=useState(config?.key||'');
+ const [user,setUser]=useState(null),[head,setHead]=useState(null),[phase,setPhase]=useState('signed-out'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+ const [auto,setAuto]=useState(false),[recovery,setRecovery]=useState(''),[recoveryInput,setRecoveryInput]=useState(''),[recoverySaved,setRecoverySaved]=useState(false),[recoveryTail,setRecoveryTail]=useState('');
+ const [history,setHistory]=useState([]),[showRecovery,setShowRecovery]=useState(false),[showHistory,setShowHistory]=useState(false);
+ const [vaultPassword,setVaultPassword]=useState(''),[vaultPassword2,setVaultPassword2]=useState(''),[unlockPassword,setUnlockPassword]=useState('');
+ const clientRef=useRef(null),gatewayRef=useRef(null),keyRef=useRef(null),headRef=useRef(null),pendingRef=useRef(null),baselineRef=useRef(null),epochRef=useRef(0),busyRef=useRef(false),pollRef=useRef(false),userIdRef=useRef(null),previousUserRef=useRef(null);
+ const propsRef=useRef({bundle,selectedId,onApplySnapshot,onClear,isModalOpen});propsRef.current={bundle,selectedId,onApplySnapshot,onClear,isModalOpen};
+ const autoRef=useRef(auto);autoRef.current=auto;
+ const phaseRef=useRef(phase);phaseRef.current=phase;
+ const updateHead=h=>{headRef.current=h;setHead(h);};
+ const currentSnapshot=()=>snapshotFromBundle(propsRef.current.bundle,propsRef.current.selectedId);
+ const assertEpoch=stamp=>{if(stamp!==epochRef.current){const e=new Error('הפעולה בוטלה.');e.name='AbortError';throw e;}};
+ const wipe=(clearView=true)=>{epochRef.current++;keyRef.current=null;pendingRef.current=null;baselineRef.current=null;setRecovery('');setRecoveryInput('');setRecoverySaved(false);setRecoveryTail('');setHistory([]);setShowRecovery(false);setAuto(false);if(clearView)propsRef.current.onClear();};
+ const lock=()=>{wipe();setPhase(headRef.current?'locked':'needs-create');setNotice('הכספת ננעלה והעותק הפתוח נסגר. מפתח הפענוח אינו נשמר בדפדפן.');};
+ async function task(op
