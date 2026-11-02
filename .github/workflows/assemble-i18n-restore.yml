@@ -1,0 +1,31 @@
+name: Assemble i18n restore files
+on:
+  push:
+    branches: [feature/i18n-en]
+    paths:
+      - 'family-viewer/.restore-chunks/**'
+      - '.github/workflows/assemble-i18n-restore.yml'
+  workflow_dispatch:
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/i18n-en
+      - name: Assemble CloudAccess.jsx and App.jsx
+        run: |
+          set -euo pipefail
+          cat family-viewer/.restore-chunks/cloud/CloudAccess.part* > family-viewer/src/CloudAccess.jsx
+          cat family-viewer/.restore-chunks/app/App.part* > family-viewer/src/App.jsx
+          wc -c family-viewer/src/CloudAccess.jsx family-viewer/src/App.jsx
+          grep -q '2\*24\*60\*60\*1000' family-viewer/src/CloudAccess.jsx
+          grep -q 'LangToggle' family-viewer/src/App.jsx
+      - name: Commit assembled sources
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Assemble full App.jsx and CloudAccess.jsx for i18n EN/HE"
+          branch: feature/i18n-en
+          file_pattern: 'family-viewer/src/App.jsx family-viewer/src/CloudAccess.jsx'
