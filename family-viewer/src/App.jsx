@@ -216,7 +216,8 @@ function MiniTree() {
   return <svg className="mini-tree" viewBox="0 0 170 110" fill="none" aria-hidden="true"><path d="M85 102V55M85 78 55 49M85 63l28-28M55 49V27M112 35V18M55 39 36 25" stroke="#789084" strokeWidth="1.5" strokeLinecap="round"/><path d="M49 30C32 28 36 11 36 11s18 3 17 17M58 51c-1-16 15-20 15-20s4 18-12 22M112 35c-3-17 13-24 13-24s7 18-10 26M82 63C66 56 72 39 72 39s20 8 13 24M88 79c1-18 21-20 21-20s1 20-19 22" fill="#c3d0c2"/><circle cx="36" cy="24" r="4" fill="#b57d5d"/><circle cx="56" cy="18" r="5" fill="#b57d5d"/><circle cx="113" cy="12" r="4" fill="#b57d5d"/><path d="M64 103h42" stroke="#a6b4a3" strokeLinecap="round"/></svg>;
 }
 
-function Dialog({ title, subtitle, children, onClose, className = '' }) {
+function Dialog({
+  const { t } = useI18n(); title, subtitle, children, onClose, className = '' }) {
   const ref = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -309,7 +310,8 @@ function UploadDialog({ onClose, onImport, onDemo }) {
   </Dialog>;
 }
 
-function SearchBar({ data, query, setQuery, onSelect, onDirectory }) {
+function SearchBar({
+  const { t } = useI18n(); data, query, setQuery, onSelect, onDirectory }) {
   const [open, setOpen] = useState(false), [active, setActive] = useState(-1);
   const input = useRef(null), wrapper = useRef(null);
   const results = useMemo(() => { const terms = normalize(query).split(' ').filter(Boolean); return terms.length ? data.order.filter(id => terms.every(t => data.people[id].search.includes(t))).slice(0, 7).map(id => data.people[id]) : []; }, [query, data]);
@@ -384,7 +386,8 @@ function SavedFilesList({ currentBundle, onLoadSavedFile, onRemoveSavedFile, onU
   </div>;
 }
 
-function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved, onToast }) {
+function FileView({
+  const { t } = useI18n(); bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved, onToast }) {
   const { data } = bundle;
   const canShare = !!(bundle?.raw) && !bundle?.isDemo;
 
@@ -576,7 +579,8 @@ function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved,
   );
 }
 
-function ToolsDialog({ onClose, bundle, onToast }) {
+function ToolsDialog({
+  const { t } = useI18n(); onClose, bundle, onToast }) {
   const openTool = (url, label) => {
     if (!bundle?.raw) {
       onToast?.('אין קובץ GEDCOM פתוח להעברה');
