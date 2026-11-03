@@ -1,0 +1,212 @@
+name: Wire FamilyExperience i18n
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/wire-fx-i18n.yml'
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch FamilyExperience.jsx
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          path = Path('family-viewer/src/FamilyExperience.jsx')
+          src = path.read_text(encoding='utf-8')
+          orig = src
+
+          if "from './i18n/index.js'" not in src and 'from "./i18n/index.js"' not in src:
+              src = src.replace(
+                  "import { ATTRIBUTE_NAMES, branchPeople, eventTitle, personInformation, personRecord } from './person-info.js';",
+                  "import { ATTRIBUTE_NAMES, branchPeople, eventTitle, personInformation, personRecord } from './person-info.js';\n"
+                  "import { t, getLang } from './i18n/index.js';",
+                  1,
+              )
+
+          # locale-aware count
+          src = src.replace(
+              "const count = n => n.toLocaleString('he-IL');",
+              "const count = n => n.toLocaleString(getLang() === 'en' ? 'en-US' : 'he-IL');",
+              1,
+          )
+
+          # role helpers
+          src = src.replace(
+              "const parentRole = person => person.sex === 'F' ? 'אמא' : person.sex === 'M' ? 'אבא' : 'הורה';",
+              "const parentRole = person => person.sex === 'F' ? t('fx.mother') : person.sex === 'M' ? t('fx.father') : t('fx.parent');",
+              1,
+          )
+          src = src.replace(
+              "const birthLabel = person => person.sex === 'F' ? 'נולדה' : person.sex === 'M' ? 'נולד' : 'לידה';",
+              "const birthLabel = person => person.sex === 'F' ? t('fx.bornF') : person.sex === 'M' ? t('fx.bornM') : t('fx.birth');",
+              1,
+          )
+          src = src.replace(
+              "const deathLabel = person => person.sex === 'F' ? 'נפטרה' : person.sex === 'M' ? 'נפטר' : 'פטירה';",
+              "const deathLabel = person => person.sex === 'F' ? t('fx.diedF') : person.sex === 'M' ? t('fx.diedM') : t('fx.death');",
+              1,
+          )
+
+          reps = [
+            ("'תאריך לא צוין'", "t('fx.dateUnknown')"),
+            ("'לא תועד'", "t('fx.notRecorded')"),
+            ("'לא תועדו בקובץ'", "t('fx.notInFile')"),
+            ("'מצד אבא'", "t('fx.fatherSide')"),
+            ("'מצד אמא'", "t('fx.motherSide')"),
+            ("'מצד ההורה'", "t('fx.parentSide')"),
+            ("'סבתא'", "t('fx.grandmother')"),
+            ("'סבא'", "t('fx.grandfather')"),
+            ("'סב / סבתא'", "t('fx.grandparent')"),
+            ("'דור הסבים והסבתות'", "t('fx.grandparentsGen')"),
+            ("'דור ההורים'", "t('fx.parentsGen')"),
+            ("'סבים וסבתות לא תועדו בצד הזה'", "t('fx.grandparentsMissing')"),
+            ("'המידע על הסב/תא הנוספים חסר'", "t('fx.grandparentInfoMissing')"),
+            ("'נישואים'", "t('fx.marriage')"),
+            ("'מגורים'", "t('fx.residence')"),
+            ("'עיסוק'", "t('fx.occupation')"),
+            ("'מגורים כפי שתועדו'", "t('fx.recordedResidence')"),
+            ("'שמות נוספים'", "t('fx.otherNames')"),
+            ("'הסיפור שלה'", "t('fx.storyF')"),
+            ("'הסיפור שלו'", "t('fx.storyM')"),
+            ("'הסיפור האישי'", "t('fx.storyPersonal')"),
+            ("'בני זוג'", "t('fx.partners')"),
+            ("'ילדים'", "t('fx.children')"),
+            ("'אחים'", "t('fx.siblings')"),
+            ("'אחות'", "t('fx.sister')"),
+            ("'אח'", "t('fx.brother')"),
+            ("'אח/ות'", "t('fx.sibling')"),
+            ("'אח/ות למחצה'", "t('fx.halfSibling')"),
+            ("'בן / בת זוג'", "t('fx.spouse')"),
+            ("'קשר קודם'", "t('fx.previousBond')"),
+            ("'במילים אישיות'", "t('fx.personalWords')"),
+            ("'הערה אישית'", "t('fx.personalNote')"),
+            ("'לקריאת הסיפור המלא'", "t('fx.readFull')"),
+            ("'פחות מהסיפור'", "t('fx.lessStory')"),
+            ("'תחנות בחיים'", "t('fx.lifeStations')"),
+            ("'הרגעים שמרכיבים חיים'", "t('fx.momentsTitle')"),
+            ("'עוד אין אירועים מתועדים'", "t('fx.noEvents')"),
+            ("'מאיפה מגיע הסיפור?'", "t('fx.sourcesTitle')"),
+            ("'לא קושרו מקורות ברשומה'", "t('fx.noSources')"),
+            ("'קובץ המקור'", "t('fx.sourceFile')"),
+            ("'הצגת הרשומה המקורית'", "t('fx.showRaw')"),
+            ("'בדורות הקודמים'", "t('fx.ancestors')"),
+            ("'צאצאים מתועדים'", "t('fx.descendants')"),
+            ("'סגירת האנשים בענף'", "t('fx.closeBranch')"),
+            ("'מי עוד נמצא בענף?'", "t('fx.whoElse')"),
+            ("'דורות קודמים'", "t('fx.pastGens')"),
+            ("'צאצאים'", "t('fx.descendantsBtn')"),
+            ("'לא תועדו אנשים נוספים בכיוון הזה.'", "t('fx.noMoreDirection')"),
+            ("'הצגת עוד אנשים'", "t('fx.showMorePeople')"),
+            ("'פרטים'", "t('fx.tabDetails')"),
+            ("'ציר זמן'", "t('fx.tabTimeline')"),
+            ("'מקורות'", "t('fx.tabSources')"),
+            ("'מאחורי השם'", "t('fx.behindName')"),
+            ("'מידע על האדם'", "t('fx.personInfo')"),
+            ("'רק מידע מתוך הקובץ שלכם'", "t('fx.fromYourFile')"),
+            ("'מבט משפחתי'", "t('fx.familyView')"),
+            ("'אדם אחד. עולם של חיבורים.'", "t('fx.familyViewTag')"),
+            ("'חזרה לאדם הקודם'", "t('fx.prevPerson')"),
+            ("'מעבר לאדם הבא'", "t('fx.nextPerson')"),
+            ("'הדפסה / PDF'", "t('fx.printPdf')"),
+            ("'המעגל הקרוב'", "t('fx.closeCircle')"),
+            ("'הסתרת סבים וסבתות'", "t('fx.hideGrandparents')"),
+            ("'הצגת סבים וסבתות'", "t('fx.showGrandparents')"),
+            ("'איך מנווטים באילן?'", "t('fx.howNavigate')"),
+            ("'בחירת משפחת הורים'", "t('fx.chooseParentFamily')"),
+            ("'כאן מתחיל הענף הזה'", "t('fx.branchStarts')"),
+            ("'המשפחה מסביב'", "t('fx.familyAround')"),
+            ("'הזזה ימינה ושמאלה לכל הרשימה'", "t('fx.scrollHint')"),
+            ("'ילדים וילדות'", "t('fx.childrenSection')"),
+            ("'אחים ואחיות'", "t('fx.siblingsSection')"),
+            ("'האדם הנבחר'", "t('fx.selectedPerson')"),
+            ("'לגלות את הסיפור'", "t('fx.discoverStory')"),
+            ("'לפרטים מלאים, אירועים ומקורות'", "t('fx.fullDetails')"),
+            (" שנים", " ' + t('fx.years')"),
+          ]
+
+          # carefully replace only string literals - already quoted forms
+          for old, new in reps:
+              if old in src:
+                  src = src.replace(old, new)
+
+          # template strings with Hebrew - specific patterns
+          tpl = [
+            ('`מעבר אל ${person.name}`', "t('fx.goTo', { name: person.name })"),
+            ('`מעבר אל ${p.name}`', "t('fx.goTo', { name: p.name })"),
+            ('`מעבר למבט המשפחתי של ${person.name}`', "t('fx.goToFamily', { name: person.name })"),
+            ('`בחירת משפחת סבים של ${parent.name}`', "t('fx.chooseParentFamily') + ' — ' + parent.name"),
+            ("ההורים של <strong", "{t('fx.parentsOf', { name: '' }).replace('{name}','')}<strong"),
+            # better parents of:
+          ]
+          for old, new in tpl:
+              if old in src:
+                  src = src.replace(old, new)
+
+          # Fix common JSX text nodes still as raw Hebrew inside tags
+          jsx_reps = [
+            ('>דור ההורים</span>', ">{t(\'fx.parentsGen\')}</span>'),
+            ('<h3>המעגל הקרוב</h3>', '<h3>{t(\'fx.closeCircle\')}</h3>'),
+            ('<h2>מבט משפחתי</h2>', '<h2>{t(\'fx.familyView\')}</h2>'),
+            ('<span>המשפחה מסביב</span>', '<span>{t(\'fx.familyAround\')}</span>'),
+            ('<strong>כאן מתחיל הענף הזה</strong>', '<strong>{t(\'fx.branchStarts\')}</strong>'),
+            ('הורים לא תועדו בקובץ. ממשיכים מהאדם הנבחר.', "{t('fx.noParentsInFile')}"),
+            ('תאריכים ומקומות יופיעו כשיתועדו בקובץ.', "{t('fx.noEventsBody')}"),
+            ('המידע מוצג כפי שהגיע מקובץ ה־GEDCOM.', "{t('fx.noSourcesBody')}"),
+            ('מזהה רשומה:', "{t('fx.recordId')}:"),
+            ('גיל כפי שתועד:', "{t('fx.recordedAge', { age: '' }).split(':')[0]}:"),
+          ]
+          # Use simpler approach without over-escaping
+          simple_jsx = [
+            ("<h3>המעגל הקרוב</h3>", "<h3>{t('fx.closeCircle')}</h3>"),
+            ("<h2>מבט משפחתי</h2>", "<h2>{t('fx.familyView')}</h2>"),
+            ("<span>המשפחה מסביב</span>", "<span>{t('fx.familyAround')}</span>"),
+            ("<strong>כאן מתחיל הענף הזה</strong>", "<strong>{t('fx.branchStarts')}</strong>"),
+            ("הורים לא תועדו בקובץ. ממשיכים מהאדם הנבחר.", "{t('fx.noParentsInFile')}"),
+            ("תאריכים ומקומות יופיעו כשיתועדו בקובץ.", "{t('fx.noEventsBody')}"),
+            ("המידע מוצג כפי שהגיע מקובץ ה־GEDCOM.", "{t('fx.noSourcesBody')}"),
+            ("<strong>הרגעים שמרכיבים חיים</strong>", "<strong>{t('fx.momentsTitle')}</strong>"),
+            ("<strong>מאיפה מגיע הסיפור?</strong>", "<strong>{t('fx.sourcesTitle')}</strong>"),
+            ("<strong>עוד אין אירועים מתועדים</strong>", "<strong>{t('fx.noEvents')}</strong>"),
+            ("<strong>לא קושרו מקורות ברשומה</strong>", "<strong>{t('fx.noSources')}</strong>"),
+            ("<h4>במילים אישיות</h4>", "<h4>{t('fx.personalWords')}</h4>"),
+            ("<h4>תחנות בחיים</h4>", "<h4>{t('fx.lifeStations')}</h4>"),
+            ("<span>קובץ המקור</span>", "<span>{t('fx.sourceFile')}</span>"),
+            ("<span>מאחורי השם</span>", "<span>{t('fx.behindName')}</span>"),
+          ]
+          for old, new in simple_jsx:
+              if old in src:
+                  src = src.replace(old, new)
+
+          # story of name patterns in JSX
+          import re
+          src = re.sub(
+              r'הסיפור של \{person\.given \|\| person\.name\}',
+              "{t('fx.storyOf', { name: person.given || person.name })}",
+              src,
+          )
+          src = re.sub(
+              r'הענף של \{person\.given \|\| person\.name\}',
+              "{t('fx.branchOf', { name: person.given || person.name })}",
+              src,
+          )
+
+          if src == orig:
+              print('No changes')
+          else:
+              path.write_text(src, encoding='utf-8')
+              print(f'Patched {len(orig)} -> {len(src)}')
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/FamilyExperience.jsx
+          if git diff --staged --quiet; then echo no change; else
+            git commit -m "i18n: wire FamilyExperience UI strings to t()"
+            git push origin master
+          fi
