@@ -1,0 +1,77 @@
+name: Repair App function signatures
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repair
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          import re
+
+          app = Path('family-viewer/src/App.jsx')
+          src = app.read_text(encoding='utf-8')
+          orig = src
+
+          # Fix broken pattern: function X({\n  const { t } = useI18n(); props... }) {
+          # -> function X({\n  props... }) {\n  const { t } = useI18n();
+          pattern = re.compile(
+              r"(function (?:Dialog|SearchBar|FileView|ToolsDialog|PeopleView|UploadDialog|SidebarToolsMenu)\()\{\s*const \{ t \} = useI18n\(\);\s*"
+          )
+          def fix_broken(m):
+              return m.group(1) + '{'
+          src2, n = pattern.subn(fix_broken, src)
+          print('stripped bad inserts', n)
+          src = src2
+
+          # Also handle single-line: function Dialog({ const { t } = useI18n(); title,
+          src = re.sub(
+              r"(function Dialog\(\{)\s*const \{ t \} = useI18n\(\);\s*",
+              r"\1",
+              src,
+          )
+
+          # Now correctly add useI18n after the function body's opening brace
+          # Match: function Name(...) {   where ... may span lines until ) {
+          for name in ['Dialog', 'SearchBar', 'FileView', 'ToolsDialog', 'PeopleView', 'UploadDialog', 'SidebarToolsMenu']:
+              # Find function Name(
+              m = re.search(rf'function {name}\(', src)
+              if not m:
+                  print('missing', name)
+                  continue
+              # Find matching ) { for the params - naive: first ') {' or '){\n after start
+              start = m.start()
+              rest = src[m.end():]
+              # find the end of parameter list: first ) followed by optional space and {
+              pm = re.search(r'\)\s*\{', rest)
+              if not pm:
+                  print('no body', name)
+                  continue
+              body_open = m.end() + pm.end()  # position after {
+              # Check next 60 chars for existing useI18n
+              if 'useI18n' in src[body_open:body_open+80]:
+                  print('ok', name)
+                  continue
+              src = src[:body_open] + "\n  const { t } = useI18n();" + src[body_open:]
+              print('fixed', name)
+
+          if src != orig:
+              app.write_text(src, encoding='utf-8')
+              print('written', len(orig), '->', len(src))
+          else:
+              print('no change')
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/App.jsx
+          if git diff --staged --quiet; then echo no change; else
+            git commit -m "fix: correct useI18n placement in App function bodies"
+            git push origin master
+          fi
