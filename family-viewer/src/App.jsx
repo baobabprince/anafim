@@ -238,10 +238,11 @@ function Dialog({ title, subtitle, children, onClose, className = '' }) {
     ref.current?.querySelector('button')?.focus();
     return () => { document.body.style.overflow = overflow; document.removeEventListener('keydown', handleKey); previous?.focus?.(); };
   }, []);
-  return createPortal(<div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><section className={`dialog ${className}`} role="dialog" aria-modal="true" aria-labelledby="dialog-title" ref={ref}><button className="icon-button dialog-close" onClick={onClose} aria-label="סגירה"><X size={20}/></button><div className="dialog-heading"><span className="dialog-icon"><Sprout size={26}/></span><h2 id="dialog-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{children}</section></div>, document.body);
+  return createPortal(<div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><section className={`dialog ${className}`} role="dialog" aria-modal="true" aria-labelledby="dialog-title" ref={ref}><button className="icon-button dialog-close" onClick={onClose} aria-label={t('common.close')}><X size={20}/></button><div className="dialog-heading"><span className="dialog-icon"><Sprout size={26}/></span><h2 id="dialog-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{children}</section></div>, document.body);
 }
 
 function UploadDialog({ onClose, onImport, onDemo }) {
+  const { t } = useI18n();
   const [file, setFile] = useState(null), [encoding, setEncoding] = useState('auto'), [remember, setRemember] = useState(true), [error, setError] = useState(''), [dragging, setDragging] = useState(false), [busy, setBusy] = useState(false), [progress, setProgress] = useState(0), [phase, setPhase] = useState('reading');
   const inputRef = useRef(null), abortRef = useRef(null);
   useEffect(() => () => { abortRef.current?.abort(); }, []);
@@ -279,32 +280,32 @@ function UploadDialog({ onClose, onImport, onDemo }) {
     }
   };
   const phaseLabels = {
-    reading:'קוראים את הקובץ מהמכשיר…',
-    background:'מפענחים את הסיפור המשפחתי…',
-    parsing:'מחברים בין הענפים…',
-    compatibility:'טוענים במצב תאימות לדפדפן…',
+    reading:t('upload.reading'),
+    background:t('upload.decoding'),
+    parsing:t('upload.linking'),
+    compatibility:t('upload.compat'),
   };
-  return <Dialog title="לכל משפחה יש סיפור" subtitle="פתחו את קובץ ה־GEDCOM שלכם, והתחילו לגלות את החיבורים." onClose={onClose} className="upload-dialog">
+  return <Dialog title={t('upload.title')} subtitle={t('upload.subtitle')} onClose={onClose} className="upload-dialog">
     <div className={`drop-zone ${dragging ? 'is-dragging' : ''} ${file ? 'has-file' : ''}`} onDragOver={e => { e.preventDefault(); if (!busy) setDragging(true); }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }} onDrop={e => { e.preventDefault(); setDragging(false); if (!busy) pickFile(e.dataTransfer.files[0]); }}>
       <span className="drop-icon">{file ? <FileText size={28}/> : <Upload size={28}/>}</span>
-      {file ? <><strong dir="auto">{file.name}</strong><span>{number(Math.max(1, Math.round(file.size / 1024)))} KB · מוכן לפתיחה</span></> : <><strong>גררו את הסיפור המשפחתי שלכם לכאן</strong><span>קובצי GEDCOM בלבד · עד 30MB</span></>}
-      <button className="button button-white button-small" disabled={busy} onClick={() => inputRef.current?.click()}>{file ? 'בחירת קובץ אחר' : 'בחירת קובץ מהמכשיר'}<ChevronLeft size={15}/></button>
+      {file ? <><strong dir="auto">{file.name}</strong><span>{number(Math.max(1, Math.round(file.size / 1024)))} KB · מוכן לפתיחה</span></> : <><strong>{t('upload.drag')}</strong><span>{t('upload.dragHint')}</span></>}
+      <button className="button button-white button-small" disabled={busy} onClick={() => inputRef.current?.click()}>{file ? t('upload.chooseOther') : t('upload.choose')}<ChevronLeft size={15}/></button>
       <input ref={inputRef} type="file" accept=".ged,.gedcom,.txt,application/x-gedcom,text/plain,application/octet-stream" aria-label="בחירת קובץ GEDCOM" onChange={e => pickFile(e.target.files[0])} className="visually-hidden" disabled={busy}/>
     </div>
-    <div className="encoding-field"><label htmlFor="encoding">קידוד הקובץ</label><select id="encoding" value={encoding} onChange={e => setEncoding(e.target.value)} disabled={busy}><option value="auto">זיהוי אוטומטי (מומלץ)</option><option value="utf-8">UTF-8</option><option value="windows-1255">עברית · Windows-1255</option><option value="utf-16le">UTF-16 LE</option><option value="utf-16be">UTF-16 BE</option><option value="ansel">ANSEL</option><option value="windows-1252">Windows-1252</option></select><span>השמות נראים משובשים? נסו לבחור קידוד אחר.</span></div>
-    <label className="checkbox-label"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} disabled={busy}/><span>לזכור עותק לא מוצפן בדפדפן הזה<span className="field-hint">ברירת מחדל: שמירה במכשיר זה. במכשיר משותף מומלץ לכבות. אפשר למחוק מפרטי הקובץ.</span></span></label>
+    <div className="encoding-field"><label htmlFor="encoding">{t('upload.encoding')}</label><select id="encoding" value={encoding} onChange={e => setEncoding(e.target.value)} disabled={busy}><option value="auto">{t('upload.encodingAuto')}</option><option value="utf-8">UTF-8</option><option value="windows-1255">{t('upload.encodingHe')}</option><option value="utf-16le">UTF-16 LE</option><option value="utf-16be">UTF-16 BE</option><option value="ansel">ANSEL</option><option value="windows-1252">Windows-1252</option></select><span>{t('upload.encodingHint')}</span></div>
+    <label className="checkbox-label"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} disabled={busy}/><span>{t('upload.remember')}<span className="field-hint">ברירת מחדל: שמירה במכשיר זה. במכשיר משותף מומלץ לכבות. אפשר למחוק מפרטי הקובץ.</span></span></label>
     {error && <div className="error-message" role="alert"><AlertTriangle size={18}/><span>{typeof error === 'string' ? error : error.message}{error.code && <small className="import-error-code">קוד שגיאה: <bdi>{error.code}</bdi></small>}</span></div>}
     {busy && <div className="import-progress" role="status"><div><span>{phaseLabels[phase]}</span><span>{progress}%</span></div><progress value={progress} max="100"/></div>}
     <div className="baobab-shared-box" style={{margin:'12px 0',padding:'12px',border:'1px solid #e7e8e0',borderRadius:'12px',background:'#fefefb'}}>
-      <div style={{fontSize:'12px',fontWeight:600,color:'#456352',marginBottom:6}}>שיתוף בין אפליקציות</div>
+      <div style={{fontSize:'12px',fontWeight:600,color:'#456352',marginBottom:6}}>{t('upload.shareTitle')}</div>
       <div style={{fontSize:11,color:'#82877e',marginBottom:8}}>{formatSharedSummary(loadSharedExport()) || 'אין נתונים משותפים עדיין'}</div>
       <button type="button" className="button button-small button-full" style={{marginBottom:8}} disabled={!hasSharedExport() || busy} onClick={() => { const b = loadFromBaobabShared(onImport); if (b) { try { onClose(); } catch (_) {} } }}>
-        טען מהשיתוף
+        {t('upload.loadShared')}
       </button>
     </div>
-    <button className="button button-primary button-full" onClick={importFile} disabled={!file || busy}>{busy ? <LoaderCircle className="spin" size={19}/> : <Network size={19}/>}<span>{busy ? phaseLabels[phase] : 'פתיחת האילן שלי'}</span>{!busy && <ArrowLeft size={17}/>}</button>
-    <div className="import-privacy"><ShieldCheck size={16}/><span>הקובץ מפוענח במכשיר. רק אם הפעלתם סנכרון בענן, יישמר גם עותק מוצפן.</span></div>
-    {!busy && <button className="text-button demo-link" onClick={onDemo}>רק רוצים להתרשם? גלו את משפחת ההדגמה<ChevronLeft size={14}/></button>}
+    <button className="button button-primary button-full" onClick={importFile} disabled={!file || busy}>{busy ? <LoaderCircle className="spin" size={19}/> : <Network size={19}/>}<span>{busy ? phaseLabels[phase] : t('upload.openTree')}</span>{!busy && <ArrowLeft size={17}/>}</button>
+    <div className="import-privacy"><ShieldCheck size={16}/><span>{t('upload.privacy')}</span></div>
+    {!busy && <button className="text-button demo-link" onClick={onDemo}>{t('upload.demo')}<ChevronLeft size={14}/></button>}
   </Dialog>;
 }
 
@@ -324,19 +325,20 @@ function SearchBar({ data, query, setQuery, onSelect, onDirectory }) {
   }, []);
   const choose = p => { onSelect(p.id); setQuery(''); setOpen(false); input.current?.blur(); };
   const showResults = () => { onDirectory(); setOpen(false); input.current?.blur(); };
-  return <div className="search-wrapper" ref={wrapper}><div className={`search-bar ${open ? 'search-focused' : ''}`}><Search size={20} className="search-icon"/><input ref={input} type="search" placeholder="את מי תרצו להכיר? חפשו שם, מקום או שנה" value={query} onChange={e => { setQuery(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} aria-label="חיפוש אדם לפי שם, מקום או שנה" role="combobox" aria-expanded={open && !!query.trim()} aria-autocomplete="list" aria-controls="search-results" aria-activedescendant={active >= 0 ? `search-result-${active}` : undefined} onKeyDown={e => { if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive(i => Math.min(i + 1, results.length - 1)); } if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); } if (e.key === 'Escape') { setOpen(false); input.current?.blur(); } if (e.key === 'Enter') { e.preventDefault(); if (active >= 0 && results[active]) choose(results[active]); else showResults(); } }}/>{query ? <button className="icon-button search-clear" onClick={() => { setQuery(''); input.current?.focus(); }} aria-label="ניקוי החיפוש"><X size={17}/></button> : <kbd className="search-shortcut">/</kbd>}<div className="search-divider"/><button className="search-directory" onClick={showResults} aria-label="הצגת כל האנשים"><UsersRound size={17}/><span>כל האנשים</span><span className="search-count">{number(data.stats.people)}</span><ChevronLeft size={16}/></button></div>
+  return <div className="search-wrapper" ref={wrapper}><div className={`search-bar ${open ? 'search-focused' : ''}`}><Search size={20} className="search-icon"/><input ref={input} type="search" placeholder="את מי תרצו להכיר? חפשו שם, מקום או שנה" value={query} onChange={e => { setQuery(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} aria-label="חיפוש אדם לפי שם, מקום או שנה" role="combobox" aria-expanded={open && !!query.trim()} aria-autocomplete="list" aria-controls="search-results" aria-activedescendant={active >= 0 ? `search-result-${active}` : undefined} onKeyDown={e => { if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive(i => Math.min(i + 1, results.length - 1)); } if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); } if (e.key === 'Escape') { setOpen(false); input.current?.blur(); } if (e.key === 'Enter') { e.preventDefault(); if (active >= 0 && results[active]) choose(results[active]); else showResults(); } }}/>{query ? <button className="icon-button search-clear" onClick={() => { setQuery(''); input.current?.focus(); }} aria-label="{t('common.clearSearch')}"><X size={17}/></button> : <kbd className="search-shortcut">/</kbd>}<div className="search-divider"/><button className="search-directory" onClick={showResults} aria-label="{t('people.showAll')}"><UsersRound size={17}/><span>{t('nav.people')}</span><span className="search-count">{number(data.stats.people)}</span><ChevronLeft size={16}/></button></div>
     {open && query.trim() && <div className="search-results" id="search-results" role="listbox" aria-label="תוצאות חיפוש"><div className="search-results-heading">{total ? `${number(total)} אנשים מתאימים` : 'עוד לא מצאנו התאמה'}</div>{results.map((p,i) => <button id={`search-result-${i}`} key={p.id} role="option" aria-selected={active === i} className={`search-result ${active === i ? 'is-active' : ''}`} onClick={() => choose(p)}><Avatar person={p} size="sm"/><span><strong>{p.name}</strong><small>{lifeLabel(p)}{p.birth?.place ? ` · ${p.birth.place}` : ''}</small></span><CornerDownLeft size={16}/></button>)}{!results.length && <div className="search-empty"><Search size={25}/><p>נסו שם אחר, שם משפחה או מקום לידה.</p></div>}{!!total && <button className="all-results" onClick={showResults}>הצגת כל התוצאות<ArrowLeft size={15}/></button>}</div>}
   </div>;
 }
 
 function PeopleView({ data, query, setQuery, onSelect }) {
+  const { t } = useI18n();
   const [filter,setFilter] = useState('all'), [sort,setSort] = useState('name'), [limit,setLimit] = useState(40);
   useEffect(() => setLimit(40), [query, filter, sort, data]);
   const people = useMemo(() => {
     const terms = normalize(query).split(' ').filter(Boolean);
     return data.order.map(id => data.people[id]).filter(p => (filter === 'all' || p.sex === filter) && terms.every(t => p.search.includes(t))).sort((a,b) => sort === 'name' ? a.name.localeCompare(b.name,'he') : (getYear(a.birth?.date) || 9999) - (getYear(b.birth?.date) || 9999));
   }, [data, query, filter, sort]);
-  return <section className="directory-view"><div className="workspace-heading"><div className="view-heading"><h2>{query ? 'תוצאות החיפוש' : 'הפנים של המשפחה'}</h2><span className="count-pill">{number(people.length)}</span></div><label className="sort-label">מיון לפי<select value={sort} onChange={e => setSort(e.target.value)} aria-label="מיון אנשים"><option value="name">שם פרטי</option><option value="birth">שנת לידה</option></select></label></div><div className="directory-filters"><div className="segmented-control"><button className={filter === 'all' ? 'selected' : ''} onClick={() => setFilter('all')}>כולם <span>{number(data.stats.people)}</span></button><button className={filter === 'F' ? 'selected' : ''} onClick={() => setFilter('F')}>נשים <span>{number(data.stats.women)}</span></button><button className={filter === 'M' ? 'selected' : ''} onClick={() => setFilter('M')}>גברים <span>{number(data.stats.men)}</span></button></div>{query && <button className="text-button" onClick={() => setQuery('')}>ניקוי החיפוש<X size={14}/></button>}<span className="directory-hint">כל שם הוא התחלה של סיפור</span></div><div className="people-grid">{people.slice(0,limit).map(p => <button className="directory-person" key={p.id} onClick={() => onSelect(p.id)}><Avatar person={p} size="lg"/><span className="directory-person-info"><strong>{p.name}</strong><span>{lifeLabel(p)}</span><small><MapPin size={12}/>{p.birth?.place || 'מקום לידה לא צוין'}</small></span><ArrowUpLeft size={17}/></button>)}</div>{!people.length && <div className="empty-state"><Search size={35}/><h3>אין אנשים שמתאימים לחיפוש</h3><p>נסו שם אחר או חזרו להצגת כל המשפחה.</p><button className="button button-white" onClick={() => { setQuery(''); setFilter('all'); }}>הצגת כל האנשים</button></div>}{people.length > limit && <button className="button button-white load-more" onClick={() => setLimit(n => n + 60)}>הצגת אנשים נוספים<ChevronDown size={16}/></button>}</section>;
+  return <section className="directory-view"><div className="workspace-heading"><div className="view-heading"><h2>{query ? 'תוצאות החיפוש' : 'הפנים של המשפחה'}</h2><span className="count-pill">{number(people.length)}</span></div><label className="sort-label">מיון לפי<select value={sort} onChange={e => setSort(e.target.value)} aria-label="מיון אנשים"><option value="name">שם פרטי</option><option value="birth">שנת לידה</option></select></label></div><div className="directory-filters"><div className="segmented-control"><button className={filter === 'all' ? 'selected' : ''} onClick={() => setFilter('all')}>{t('common.all')} <span>{number(data.stats.people)}</span></button><button className={filter === 'F' ? 'selected' : ''} onClick={() => setFilter('F')}>{t('common.women')} <span>{number(data.stats.women)}</span></button><button className={filter === 'M' ? 'selected' : ''} onClick={() => setFilter('M')}>{t('common.men')} <span>{number(data.stats.men)}</span></button></div>{query && <button className="text-button" onClick={() => setQuery('')}>{t('common.clearSearch')}<X size={14}/></button>}<span className="directory-hint">כל שם הוא התחלה של סיפור</span></div><div className="people-grid">{people.slice(0,limit).map(p => <button className="directory-person" key={p.id} onClick={() => onSelect(p.id)}><Avatar person={p} size="lg"/><span className="directory-person-info"><strong>{p.name}</strong><span>{lifeLabel(p)}</span><small><MapPin size={12}/>{p.birth?.place || 'מקום לידה לא צוין'}</small></span><ArrowUpLeft size={17}/></button>)}</div>{!people.length && <div className="empty-state"><Search size={35}/><h3>אין אנשים שמתאימים לחיפוש</h3><p>נסו שם אחר או חזרו להצגת כל המשפחה.</p><button className="button button-white" onClick={() => { setQuery(''); setFilter('all'); }}>{t('people.showAll')}</button></div>}{people.length > limit && <button className="button button-white load-more" onClick={() => setLimit(n => n + 60)}>הצגת אנשים נוספים<ChevronDown size={16}/></button>}</section>;
 }
 
 function SavedFilesList({ currentBundle, onLoadSavedFile, onRemoveSavedFile, onUploadNew, onSelectDemo }) {
@@ -389,21 +391,21 @@ function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved,
   const analysisTools = [
     {
       id: 'genea-net',
-      title: 'ניתוח רשת',
+      title: t('tools.network'),
       desc: 'גרף קשרים, קהילות וסטטיסטיקות',
       url: 'https://baobabprince.github.io/genea-net/',
       Icon: Network,
     },
     {
       id: 'map',
-      title: 'מפת מקומות',
-      desc: 'מיפוי גיאוגרפי של אירועים',
+      title: t('tools.map'),
+      desc: t('tools.mapDesc'),
       url: 'https://baobabprince.github.io/GEDCOM-map/',
       Icon: MapPin,
     },
     {
       id: 'diff',
-      title: 'השוואת קבצים',
+      title: t('tools.diff'),
       desc: 'השוואה בין שני קבצי GEDCOM',
       url: 'https://baobabprince.github.io/gedcom-diff-tool/',
       Icon: GitFork,
@@ -446,7 +448,7 @@ function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved,
     <section className="file-view">
       <div className="workspace-heading">
         <div className="view-heading">
-          <h2>פרטי הקובץ</h2>
+          <h2>{t('nav.file')}</h2>
         </div>
       </div>
 
@@ -495,7 +497,7 @@ function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved,
 
       <div className="file-tools-section">
         <div className="file-tools-heading">
-          <h3>ניתוח מתקדם</h3>
+          <h3>{t('tools.advanced')}</h3>
           <p>פתיחה בכלים אחרים עם אותו אילן · הנתונים נשארים במכשיר</p>
         </div>
         <div className="file-tools-grid">
@@ -526,9 +528,9 @@ function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved,
       </div>
 
       <details className="file-tech-details">
-        <summary>פרטים טכניים</summary>
+        <summary>{t('file.techDetails')}</summary>
         <dl className="metadata-list">
-          <div><dt>גרסת GEDCOM</dt><dd dir="ltr">{data.metadata.version || '—'}</dd></div>
+          <div><dt>{t('file.gedcomVersion')}</dt><dd dir="ltr">{data.metadata.version || '—'}</dd></div>
           <div><dt>תוכנת מקור</dt><dd dir="auto">{data.metadata.source || '—'}</dd></div>
           <div><dt>קידוד</dt><dd dir="ltr">{bundle.encoding?.toUpperCase?.() || '—'}</dd></div>
           {encodingLabel && <div><dt>זיהוי קידוד</dt><dd>{encodingLabel}</dd></div>}
@@ -536,7 +538,7 @@ function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved,
           {bundle.importedAt && (
             <div><dt>נפתח</dt><dd>{new Date(bundle.importedAt).toLocaleString('he-IL')}</dd></div>
           )}
-          <div><dt>גרסת ענפים</dt><dd dir="ltr">{APP_VERSION}</dd></div>
+          <div><dt>{t('file.appVersion')}</dt><dd dir="ltr">{APP_VERSION}</dd></div>
         </dl>
       </details>
 
@@ -565,7 +567,7 @@ function FileView({ bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved,
       <div className="privacy-card privacy-card-compact">
         <ShieldCheck size={22} />
         <div>
-          <h3>פרטיות</h3>
+          <h3>{t('file.privacy')}</h3>
           <p>הפענוח תמיד בדפדפן. במצב מקומי הקובץ נשאר אצלכם. אם מפעילים סנכרון — לענן עולה רק עותק מוצפן, בלי מפתח הפענוח.</p>
         </div>
       </div>
@@ -616,7 +618,7 @@ function ToolsDialog({ onClose, bundle, onToast }) {
     },
     {
       id: 'shield',
-      title: 'פרטיות (GedShield)',
+      title: t('tools.privacy'),
       desc: 'בדיקות פרטיות והגנה על נתונים רגישים בקובץ',
       url: 'https://baobabprince.github.io/GedShield/',
       icon: 'ShieldCheck',
@@ -659,7 +661,7 @@ function ToolsDialog({ onClose, bundle, onToast }) {
       </div>
       <p style={{ fontSize: 11, color: '#82877e', marginTop: 14, lineHeight: 1.5 }}>
         הלחיצה שומרת את ה־GEDCOM ב־localStorage המשותף ופותחת את הכלי בחלון חדש.
-        אם הכלי לא טוען אוטומטית — לחצו שם על «טען מהשיתוף».
+        אם הכלי לא טוען אוטומטית — לחצו שם על «{t('upload.loadShared')}».
       </p>
     </Dialog>
   );
@@ -673,29 +675,29 @@ function SidebarToolsMenu({ bundle, onDownload, onToast, closeMobileMenu }) {
   const analysisTools = [
     {
       id: 'genea-net',
-      title: 'ניתוח רשת',
-      desc: 'גרף קשרים וקהילות',
+      title: t('tools.network'),
+      desc: t('tools.networkDesc'),
       url: 'https://baobabprince.github.io/genea-net/',
       Icon: Network,
     },
     {
       id: 'map',
-      title: 'מפת מקומות',
-      desc: 'מיפוי גיאוגרפי של אירועים',
+      title: t('tools.map'),
+      desc: t('tools.mapDesc'),
       url: 'https://baobabprince.github.io/GEDCOM-map/',
       Icon: MapPin,
     },
     {
       id: 'diff',
-      title: 'השוואת קבצים',
-      desc: 'השוואה בין שני קבצים',
+      title: t('tools.diff'),
+      desc: t('tools.diffDesc'),
       url: 'https://baobabprince.github.io/gedcom-diff-tool/',
       Icon: GitFork,
     },
     {
       id: 'shield',
-      title: 'פרטיות (GedShield)',
-      desc: 'סימון והגנה על נתונים',
+      title: t('tools.privacy'),
+      desc: t('tools.privacyDesc'),
       url: 'https://baobabprince.github.io/GedShield/',
       Icon: ShieldCheck,
     },
@@ -744,7 +746,7 @@ function SidebarToolsMenu({ bundle, onDownload, onToast, closeMobileMenu }) {
 
       {open && (
         <div id="sidebar-tools-submenu" className="sidebar-submenu" role="region" aria-label={t('nav.toolsMenu')}>
-          <div className="submenu-section-title">כלי ניתוח מתקדמים</div>
+          <div className="submenu-section-title">{t('tools.analysis')}</div>
           {analysisTools.map(({ id, title, desc, url, Icon }) => (
             <button
               key={id}
@@ -772,7 +774,7 @@ function SidebarToolsMenu({ bundle, onDownload, onToast, closeMobileMenu }) {
           >
             <Download size={16} className="submenu-icon" />
             <div className="submenu-text">
-              <strong>הורדת GEDCOM</strong>
+              <strong>{t('tools.download')}</strong>
               <span>שמירת הקובץ הנוכחי</span>
             </div>
           </button>
@@ -783,8 +785,8 @@ function SidebarToolsMenu({ bundle, onDownload, onToast, closeMobileMenu }) {
           >
             <Printer size={16} className="submenu-icon" />
             <div className="submenu-text">
-              <strong>הדפסה / PDF</strong>
-              <span>הדפסת המבט הנוכחי</span>
+              <strong>{t('tools.print')}</strong>
+              <span>{t('tools.printDesc')}</span>
             </div>
           </button>
         </div>
@@ -987,7 +989,7 @@ export default function App() {
         </nav>
         <div className="sidebar-separator"/>
         <button className="nav-item subtle-nav" onClick={() => { setMobileMenu(false); setModal('help'); }}>
-          <HelpCircle size={19}/><span>נעים להכיר את ענפים</span><ArrowUpLeft size={14}/>
+          <HelpCircle size={19}/><span>{t('help.intro')}</span><ArrowUpLeft size={14}/>
         </button>
         <div className="sidebar-spacer"/>
         <section className="fx-recents" aria-label="אנשים שביקרתם באילן">
@@ -1060,10 +1062,10 @@ export default function App() {
         </div>
       </main>
       <nav className="mobile-bottom-nav" aria-label="ניווט מהיר">
-        <button className={view === 'family' ? 'selected' : ''} onClick={() => changeView('family')}><Network size={21}/><span>המשפחה</span></button>
-        <button className={view === 'people' ? 'selected' : ''} onClick={() => changeView('people')}><UsersRound size={21}/><span>כל האנשים</span></button>
-        <button className="mobile-upload" onClick={() => setModal('upload')}><span><Upload size={20}/></span><span>פתיחת קובץ</span></button>
-        <button className={view === 'file' ? 'selected' : ''} onClick={() => changeView('file')}><FileText size={21}/><span>פרטי הקובץ</span></button>
+        <button className={view === 'family' ? 'selected' : ''} onClick={() => changeView('family')}><Network size={21}/><span>{t('nav.familyShort')}</span></button>
+        <button className={view === 'people' ? 'selected' : ''} onClick={() => changeView('people')}><UsersRound size={21}/><span>{t('nav.people')}</span></button>
+        <button className="mobile-upload" onClick={() => setModal('upload')}><span><Upload size={20}/></span><span>{t('nav.upload')}</span></button>
+        <button className={view === 'file' ? 'selected' : ''} onClick={() => changeView('file')}><FileText size={21}/><span>{t('nav.file')}</span></button>
       </nav>
       {modal === 'upload' && <UploadDialog onClose={() => setModal(null)} onImport={loadBundle} onDemo={() => loadBundle(demoBundle())}/>}
       {modal === 'tools' && <ToolsDialog onClose={() => setModal(null)} bundle={bundle} onToast={setToast} />}
