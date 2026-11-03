@@ -1,0 +1,111 @@
+name: Fix t runtime errors
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix FamilyExperience syntax + App useI18n
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          import re
+
+          # --- FamilyExperience: fix broken t('fx.with' ...) ---
+          fx = Path('family-viewer/src/FamilyExperience.jsx')
+          src = fx.read_text(encoding='utf-8')
+          orig = src
+
+          # Broken pattern from bad replace - missing closing })
+          broken = re.compile(
+              r"\{t\('fx\.with', \{ name: event\.partners\.map\(p=>p\.name\)\.join\([^)]*\)"
+          )
+          # Find and show
+          m = broken.search(src)
+          if m:
+              # replace the whole broken span content with correct JSX
+              # Look for the full broken segment up to </span>
+              src2 = re.sub(
+                  r"\{t\('fx\.with', \{ name: event\.partners\.map\(p=>p\.name\)\.join\([^)]*\)[^}]*</span>",
+                  "{t('fx.with', { name: event.partners.map(p => p.name).join(', ') })}</span>",
+                  src,
+              )
+              if src2 == src:
+                  # try more aggressive fix on the known broken line fragment
+                  src2 = src.replace(
+                      "{t('fx.with', { name: event.partners.map(p=>p.name).join(', ')}</span>",
+                      "{t('fx.with', { name: event.partners.map(p => p.name).join(', ') })}</span>",
+                  )
+              src = src2
+              print('fixed fx.with partners')
+
+          # Any other unclosed t('fx.with'
+          if "join(', ')}</span>" in src and "join(', ') })}" not in src:
+              src = src.replace(
+                  "join(', ')}</span>",
+                  "join(', ') })}</span>",
+              )
+              print('fixed join span')
+
+          if src != orig:
+              fx.write_text(src, encoding='utf-8')
+              print('FX saved')
+          else:
+              print('FX unchanged - manual scan')
+              # print context around partners
+              i = src.find("event.partners.map")
+              if i >= 0:
+                  print(repr(src[i-80:i+120]))
+
+          # --- App.jsx: add useI18n to components that use t ---
+          app_path = Path('family-viewer/src/App.jsx')
+          app = app_path.read_text(encoding='utf-8')
+          app_orig = app
+
+          def ensure_hook(fn_sig, after_line_contains=None):
+              nonlocal app
+              if fn_sig not in app:
+                  print('missing', fn_sig[:50])
+                  return
+              idx = app.find(fn_sig)
+              region = app[idx:idx+250]
+              if 'useI18n' in region:
+                  print('already', fn_sig[:40])
+                  return
+              # insert after opening brace newline
+              insert_at = idx + len(fn_sig)
+              # fn_sig should end with { or we find {
+              brace = app.find('{', idx)
+              insert_at = brace + 1
+              app = app[:insert_at] + "\n  const { t } = useI18n();" + app[insert_at:]
+              print('hooked', fn_sig[:50])
+
+          for sig in [
+              'function Dialog({',
+              'function SearchBar({',
+              'function FileView({',
+              'function ToolsDialog({',
+              'function PeopleView({',
+              'function UploadDialog({',
+              'function SidebarToolsMenu({',
+          ]:
+              ensure_hook(sig)
+
+          if app != app_orig:
+              app_path.write_text(app, encoding='utf-8')
+              print('App saved')
+          else:
+              print('App unchanged')
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/FamilyExperience.jsx family-viewer/src/App.jsx
+          if git diff --staged --quiet; then echo no change; else
+            git commit -m "fix: FamilyExperience syntax + useI18n in App subcomponents"
+            git push origin master
+          fi
