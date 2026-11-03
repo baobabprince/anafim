@@ -1,0 +1,122 @@
+name: Wire i18n UI strings
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/wire-i18n-ui.yml'
+      - 'family-viewer/src/i18n/**'
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch App.jsx
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          path = Path('family-viewer/src/App.jsx')
+          src = path.read_text(encoding='utf-8')
+          orig = src
+
+          def once(old, new):
+              global src
+              if old in src:
+                  src = src.replace(old, new, 1)
+                  return True
+              return False
+
+          # UploadDialog: useI18n
+          once(
+              'function UploadDialog({ onClose, onImport, onDemo }) {\n  const [file, setFile]',
+              "function UploadDialog({ onClose, onImport, onDemo }) {\n  const { t } = useI18n();\n  const [file, setFile]",
+          )
+
+          # PeopleView: useI18n
+          once(
+              'function PeopleView({ data, query, setQuery, onSelect }) {\n  const [filter,setFilter]',
+              "function PeopleView({ data, query, setQuery, onSelect }) {\n  const { t } = useI18n();\n  const [filter,setFilter]",
+          )
+
+          # Dialog close aria
+          once('aria-label="סגירה"', "aria-label={t('common.close')}")
+
+          reps = [
+            ('title="לכל משפחה יש סיפור"', "title={t('upload.title')}"),
+            ('subtitle="פתחו את קובץ ה־GEDCOM שלכם, והתחילו לגלות את החיבורים."', "subtitle={t('upload.subtitle')}"),
+            ('<strong>גררו את הסיפור המשפחתי שלכם לכאן</strong>', "<strong>{t('upload.drag')}</strong>"),
+            ('<span>קובצי GEDCOM בלבד · עד 30MB</span>', "<span>{t('upload.dragHint')}</span>"),
+            ("{file ? 'בחירת קובץ אחר' : 'בחירת קובץ מהמכשיר'}", "{file ? t('upload.chooseOther') : t('upload.choose')}"),
+            ('<label htmlFor="encoding">קידוד הקובץ</label>', "<label htmlFor=\"encoding\">{t('upload.encoding')}</label>"),
+            ('<option value="auto">זיהוי אוטומטי (מומלץ)</option>', "<option value=\"auto\">{t('upload.encodingAuto')}</option>"),
+            ('<option value="windows-1255">עברית · Windows-1255</option>', "<option value=\"windows-1255\">{t('upload.encodingHe')}</option>"),
+            ('<span>השמות נראים משובשים? נסו לבחור קידוד אחר.</span>', "<span>{t('upload.encodingHint')}</span>"),
+            ('לזכור עותק לא מוצפן בדפדפן הזה', "{t('upload.remember')}"),
+            ("{busy ? phaseLabels[phase] : 'פתיחת האילן שלי'}", "{busy ? phaseLabels[phase] : t('upload.openTree')}"),
+            ('הקובץ מפוענח במכשיר. רק אם הפעלתם סנכרון בענן, יישמר גם עותק מוצפן.', "{t('upload.privacy')}"),
+            ('רק רוצים להתרשם? גלו את משפחת ההדגמה', "{t('upload.demo')}"),
+            ('שיתוף בין אפליקציות', "{t('upload.shareTitle')}"),
+            ('טען מהשיתוף', "{t('upload.loadShared')}"),
+            ("reading:'קוראים את הקובץ מהמכשיר…'", "reading:t('upload.reading')"),
+            ("background:'מפענחים את הסיפור המשפחתי…'", "background:t('upload.decoding')"),
+            ("parsing:'מחברים בין הענפים…'", "parsing:t('upload.linking')"),
+            ("compatibility:'טוענים במצב תאימות לדפדפן…'", "compatibility:t('upload.compat')"),
+            # bottom nav
+            ('<span>המשפחה</span>', "<span>{t('nav.familyShort')}</span>"),
+            ('<span>כל האנשים</span>', "<span>{t('nav.people')}</span>"),
+            ('<span>פרטי הקובץ</span>', "<span>{t('nav.file')}</span>"),
+            ('<span>פתיחת קובץ</span>', "<span>{t('nav.upload')}</span>"),
+            # file view
+            ('<h2>פרטי הקובץ</h2>', "<h2>{t('nav.file')}</h2>"),
+            ('<h3>ניתוח מתקדם</h3>', "<h3>{t('tools.advanced')}</h3>"),
+            ('<dt>גרסת ענפים</dt>', "<dt>{t('file.appVersion')}</dt>"),
+            ('<dt>גרסת GEDCOM</dt>', "<dt>{t('file.gedcomVersion')}</dt>"),
+            ('<h3>פרטיות</h3>', "<h3>{t('file.privacy')}</h3>"),
+            ('<summary>פרטים טכניים</summary>', "<summary>{t('file.techDetails')}</summary>"),
+            ('<span>נעים להכיר את ענפים</span>', "<span>{t('help.intro')}</span>"),
+            # tools submenu titles in SidebarToolsMenu
+            ("title: 'ניתוח רשת'", "title: t('tools.network')"),
+            ("desc: 'גרף קשרים וקהילות'", "desc: t('tools.networkDesc')"),
+            ("title: 'מפת מקומות'", "title: t('tools.map')"),
+            ("desc: 'מיפוי גיאוגרפי של אירועים'", "desc: t('tools.mapDesc')"),
+            ("title: 'השוואת קבצים'", "title: t('tools.diff')"),
+            ("desc: 'השוואה בין שני קבצים'", "desc: t('tools.diffDesc')"),
+            ("title: 'פרטיות (GedShield)'", "title: t('tools.privacy')"),
+            ("desc: 'סימון והגנה על נתונים'", "desc: t('tools.privacyDesc')"),
+            ('כלי ניתוח מתקדמים', "{t('tools.analysis')}"),
+            ('<strong>הדפסה / PDF</strong>', "<strong>{t('tools.print')}</strong>"),
+            ('הדפסת המבט הנוכחי', "{t('tools.printDesc')}"),
+            ('<strong>הורדת GEDCOM</strong>', "<strong>{t('tools.download')}</strong>"),
+            ('שמירת הקובץ הפתוח', "{t('tools.downloadDesc')}"),
+            # people filters
+            ('כולם <span>', "{t('common.all')} <span>"),
+            ('נשים <span>', "{t('common.women')} <span>"),
+            ('גברים <span>', "{t('common.men')} <span>"),
+            ('ניקוי החיפוש', "{t('common.clearSearch')}"),
+            ('הצגת כל האנשים', "{t('people.showAll')}"),
+          ]
+
+          for old, new in reps:
+              if old in src:
+                  src = src.replace(old, new)
+
+          # phaseLabels needs t in scope - already added useI18n to UploadDialog
+          # Fix phaseLabels to be inside component after t is available - already is
+
+          if src == orig:
+              print('No changes applied')
+          else:
+              path.write_text(src, encoding='utf-8')
+              print('Patched App.jsx', len(orig), '->', len(src))
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/App.jsx
+          if git diff --staged --quiet; then echo no change; else
+            git commit -m "i18n: wire main App UI strings to t()"
+            git push origin master
+          fi
