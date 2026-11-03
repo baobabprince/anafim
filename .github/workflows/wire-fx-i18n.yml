@@ -1,10 +1,6 @@
 name: Wire FamilyExperience i18n
 on:
   workflow_dispatch:
-  push:
-    branches: [master]
-    paths:
-      - '.github/workflows/wire-fx-i18n.yml'
 jobs:
   wire:
     runs-on: ubuntu-latest
@@ -16,11 +12,12 @@ jobs:
         run: |
           python3 << 'PY'
           from pathlib import Path
+          import re
           path = Path('family-viewer/src/FamilyExperience.jsx')
           src = path.read_text(encoding='utf-8')
           orig = src
 
-          if "from './i18n/index.js'" not in src and 'from "./i18n/index.js"' not in src:
+          if "from './i18n/index.js'" not in src:
               src = src.replace(
                   "import { ATTRIBUTE_NAMES, branchPeople, eventTitle, personInformation, personRecord } from './person-info.js';",
                   "import { ATTRIBUTE_NAMES, branchPeople, eventTitle, personInformation, personRecord } from './person-info.js';\n"
@@ -28,14 +25,11 @@ jobs:
                   1,
               )
 
-          # locale-aware count
           src = src.replace(
               "const count = n => n.toLocaleString('he-IL');",
               "const count = n => n.toLocaleString(getLang() === 'en' ? 'en-US' : 'he-IL');",
               1,
           )
-
-          # role helpers
           src = src.replace(
               "const parentRole = person => person.sex === 'F' ? 'אמא' : person.sex === 'M' ? 'אבא' : 'הורה';",
               "const parentRole = person => person.sex === 'F' ? t('fx.mother') : person.sex === 'M' ? t('fx.father') : t('fx.parent');",
@@ -52,6 +46,7 @@ jobs:
               1,
           )
 
+          # (old, new) exact substring replacements
           reps = [
             ("'תאריך לא צוין'", "t('fx.dateUnknown')"),
             ("'לא תועד'", "t('fx.notRecorded')"),
@@ -126,42 +121,9 @@ jobs:
             ("'האדם הנבחר'", "t('fx.selectedPerson')"),
             ("'לגלות את הסיפור'", "t('fx.discoverStory')"),
             ("'לפרטים מלאים, אירועים ומקורות'", "t('fx.fullDetails')"),
-            (" שנים", " ' + t('fx.years')"),
-          ]
-
-          # carefully replace only string literals - already quoted forms
-          for old, new in reps:
-              if old in src:
-                  src = src.replace(old, new)
-
-          # template strings with Hebrew - specific patterns
-          tpl = [
-            ('`מעבר אל ${person.name}`', "t('fx.goTo', { name: person.name })"),
-            ('`מעבר אל ${p.name}`', "t('fx.goTo', { name: p.name })"),
-            ('`מעבר למבט המשפחתי של ${person.name}`', "t('fx.goToFamily', { name: person.name })"),
-            ('`בחירת משפחת סבים של ${parent.name}`', "t('fx.chooseParentFamily') + ' — ' + parent.name"),
-            ("ההורים של <strong", "{t('fx.parentsOf', { name: '' }).replace('{name}','')}<strong"),
-            # better parents of:
-          ]
-          for old, new in tpl:
-              if old in src:
-                  src = src.replace(old, new)
-
-          # Fix common JSX text nodes still as raw Hebrew inside tags
-          jsx_reps = [
-            ('>דור ההורים</span>', ">{t(\'fx.parentsGen\')}</span>'),
-            ('<h3>המעגל הקרוב</h3>', '<h3>{t(\'fx.closeCircle\')}</h3>'),
-            ('<h2>מבט משפחתי</h2>', '<h2>{t(\'fx.familyView\')}</h2>'),
-            ('<span>המשפחה מסביב</span>', '<span>{t(\'fx.familyAround\')}</span>'),
-            ('<strong>כאן מתחיל הענף הזה</strong>', '<strong>{t(\'fx.branchStarts\')}</strong>'),
-            ('הורים לא תועדו בקובץ. ממשיכים מהאדם הנבחר.', "{t('fx.noParentsInFile')}"),
-            ('תאריכים ומקומות יופיעו כשיתועדו בקובץ.', "{t('fx.noEventsBody')}"),
-            ('המידע מוצג כפי שהגיע מקובץ ה־GEDCOM.', "{t('fx.noSourcesBody')}"),
-            ('מזהה רשומה:', "{t('fx.recordId')}:"),
-            ('גיל כפי שתועד:', "{t('fx.recordedAge', { age: '' }).split(':')[0]}:"),
-          ]
-          # Use simpler approach without over-escaping
-          simple_jsx = [
+            ("`מעבר אל ${person.name}`", "t('fx.goTo', { name: person.name })"),
+            ("`מעבר אל ${p.name}`", "t('fx.goTo', { name: p.name })"),
+            ("`מעבר למבט המשפחתי של ${person.name}`", "t('fx.goToFamily', { name: person.name })"),
             ("<h3>המעגל הקרוב</h3>", "<h3>{t('fx.closeCircle')}</h3>"),
             ("<h2>מבט משפחתי</h2>", "<h2>{t('fx.familyView')}</h2>"),
             ("<span>המשפחה מסביב</span>", "<span>{t('fx.familyAround')}</span>"),
@@ -177,13 +139,12 @@ jobs:
             ("<h4>תחנות בחיים</h4>", "<h4>{t('fx.lifeStations')}</h4>"),
             ("<span>קובץ המקור</span>", "<span>{t('fx.sourceFile')}</span>"),
             ("<span>מאחורי השם</span>", "<span>{t('fx.behindName')}</span>"),
+            ("מזהה רשומה:", "{t('fx.recordId')}:"),
           ]
-          for old, new in simple_jsx:
+          for old, new in reps:
               if old in src:
                   src = src.replace(old, new)
 
-          # story of name patterns in JSX
-          import re
           src = re.sub(
               r'הסיפור של \{person\.given \|\| person\.name\}',
               "{t('fx.storyOf', { name: person.given || person.name })}",
