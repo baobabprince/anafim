@@ -1,0 +1,135 @@
+name: Finish i18n wiring
+on:
+  workflow_dispatch:
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch FamilyExperience leftovers
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          path = Path('family-viewer/src/FamilyExperience.jsx')
+          src = path.read_text(encoding='utf-8')
+          orig = src
+          reps = [
+            ('לגלות את הסיפור', "{t('fx.discoverStory')}"),
+            ('דור ההורים', "{t('fx.parentsGen')}"),
+            ('label="לידה"', "label={t('fx.birth')}"),
+            ('label="פטירה"', "label={t('fx.death')}"),
+            ('title="פרטי הרשומה והמקורות"', "title={t('fx.recordDetails')}"),
+            ('aria-label="הצגת מקורות ופרטי הרשומה"', "aria-label={t('fx.showSources')}"),
+            ('aria-label="בחירת משפחת הורים"', "aria-label={t('fx.chooseParentFamily')}"),
+            ('aria-label="מידע על האדם"', "aria-label={t('fx.personInfo')}"),
+            ("} בני זוג</button>", "} {t('fx.partners')}</button>"),
+            ("} ילדים</button>", "} {t('fx.children')}</button>"),
+            ("} אחים</button>", "} {t('fx.siblings')}</button>"),
+            ("לא תועדו בקובץ</span>", "{t('fx.notInFile')}</span>"),
+            ("עוד חיבורים שעוברים דרך הסיפור הזה", "{t('fx.moreViaStory')}"),
+            ("`בחירת משפחת סבים של ${parent.name}`", "t('fx.chooseGrandparentFamily', { name: parent.name })"),
+            ("גיל כפי שתועד: {event.age}", "{t('fx.recordedAge', { age: event.age })}"),
+            ("עם {event.partners.map(p=>p.name).join(", "{t('fx.with', { name: event.partners.map(p=>p.name).join("),
+            ("מאחורי השם", "{t('fx.behindName')}"),
+            ("`נישואים · ${formatDate(p.family.marriage.date)}`", "t('fx.marriageDate', { date: formatDate(p.family.marriage.date) })"),
+            ("`עם ${p.otherParent}`", "t('fx.with', { name: p.otherParent })"),
+          ]
+          for old, new in reps:
+              if old in src:
+                  src = src.replace(old, new)
+                  print('FX', old[:40])
+          if src != orig:
+              path.write_text(src, encoding='utf-8')
+              print('FX written')
+          else:
+              print('FX no change')
+          PY
+      - name: Patch CloudAccess
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          path = Path('family-viewer/src/CloudAccess.jsx')
+          src = path.read_text(encoding='utf-8')
+          orig = src
+          if "from './i18n/index.js'" not in src and 'from "./i18n/index.js"' not in src:
+              # after first import line
+              lines = src.split('\n', 1)
+              if len(lines) == 2:
+                  src = lines[0] + "\nimport { t } from './i18n/index.js';\n" + lines[1]
+              else:
+                  src = "import { t } from './i18n/index.js';\n" + src
+              print('added import')
+
+          reps = [
+            ("'נעול'", "t('cloud.locked')"),
+            ("'פתוח'", "t('cloud.statusOpen')"),
+            ("'סנכרון'", "t('cloud.sync')"),
+            ("'מסונכרן'", "t('cloud.synced')"),
+            ("'התחברות'", "t('cloud.connecting')"),
+            ("'בודקים…'", "t('cloud.checking')"),
+            ("'מחוברים'", "t('cloud.connected')"),
+            ("'טרם נשמר'", "t('cloud.notSaved')"),
+            ("'אופציונלי'", "t('cloud.optional')"),
+            ("'בחירת גרסה'", "t('cloud.chooseVersion')"),
+            ("'נדרש HTTPS'", "t('cloud.httpsRequired')"),
+            ("'הגדרות סנכרון'", "t('cloud.syncSettings')"),
+            ("'סנכרון אופציונלי'", "t('cloud.syncOptional')"),
+            ("'סנכרון בין מכשירים'", "t('cloud.strip')"),
+            ("'Google + סיסמת כספת'", "t('cloud.googlePassword')"),
+            ("'לא נמצאה כספת בענן.'", "t('cloud.noVault')"),
+            ("'יש לרענן את גרסת הענן.'", "t('cloud.needRefresh')"),
+            ("'תהליך יצירת הכספת בוטל.'", "t('cloud.createCancelled')"),
+            ("'יש לפתוח קודם את הכספת.'", "t('cloud.openFirst')"),
+            ("'העותק המוצפן נשמר בענן.'", "t('cloud.savedEncrypted')"),
+            ("'התקבל עדכון מוצפן ממכשיר אחר.'", "t('cloud.remoteUpdate')"),
+            ("'סגרו קודם את חלון פתיחת הקובץ.'", "t('cloud.closeUploadFirst')"),
+            ("'יש להתנתק לפני שינוי פרויקט ענן.'", "t('cloud.logoutBeforeProject')"),
+            ("'הכספת נמחקה בענן. העותק הפתוח נסגר.'", "t('cloud.deletedClosed')"),
+            ("'האילן נטען מהענן ופוענח רק במכשיר הזה.'", "t('cloud.loadedFromCloud')"),
+            ("'הכספת נוצרה. בענן נשמר עותק מוצפן בלבד.'", "t('cloud.created')"),
+            ("'הפעולה לא הושלמה. האילן המקומי לא הוחלף.'", "t('cloud.actionIncomplete')"),
+            ("'הכספת פתוחה. אפשר להפעיל סנכרון אוטומטי.'", "t('cloud.openCanAuto')"),
+            ("'הכספת נמחקה. חשבון ההתחברות של Google לא נמחק.'", "t('cloud.deletedGoogleRemains')"),
+            ("'נפתח אילן מקומי בזמן הורדת עדכון. נדרשת בחירה.'", "t('cloud.localWhileUpdate')"),
+            ("'לא ניתן לחדש את ההתחברות. התחברו מחדש עם Google.'", "t('cloud.relogin')"),
+            ("'זהות או סדר גרסאות הכספת השתנו. נדרשת פתיחה מחדש.'", "t('cloud.identityChanged')"),
+            ("'התחברות לענן פועלת באתר HTTPS, לא בקובץ HTML מקומי.'", "t('cloud.httpsOnly')"),
+            ("'אופציונלי. שומר עותק מוצפן בענן — רק אתם יכולים לפתוח.'", "t('cloud.optionalHint')"),
+            ("'שמרו את מפתח השחזור ואשרו את שמונת התווים האחרונים שלו.'", "t('cloud.saveRecovery')"),
+            ("'המפתח ננעל. ניתוק ההתחברות לא הושלם; נסו שוב כשיש חיבור.'", "t('cloud.lockPartialLogout')"),
+            ("'הפעולה בוטלה.'", "t('cloud.cancelled')"),
+            ("'סנכרון לא זמין'", "t('cloud.syncUnavailable')"),
+            ("'פתוח · יש לבדוק'", "t('cloud.openCheck')"),
+            ("מבצעים את הפעולה באופן מאובטח…", "{t('cloud.workingSecure')}"),
+            ("המשך עם Google", "{t('cloud.login')}"),
+            ("פתיחת הכספת", "{t('cloud.unlock')}"),
+            ("סיסמת כספת", "{t('cloud.password')}"),
+            ("פתיחה עם Passkey", "{t('cloud.passkey')}"),
+            ("מפתח שחזור", "{t('cloud.recovery')}"),
+            ("הכספת פתוחה במכשיר הזה", "{t('cloud.open')}"),
+            ("המפתח נשמר בזיכרון בלבד. נעילה אוטומטית אחרי יומיים ללא פעילות.", "{t('cloud.idleLock')}"),
+            ("נעילה אוטומטית אחרי יומיים ללא פעילות.", "{t('cloud.idleLock')}"),
+          ]
+          n = 0
+          for old, new in reps:
+              if old in src:
+                  src = src.replace(old, new)
+                  n += 1
+          print('cloud replacements', n)
+          if src != orig:
+              path.write_text(src, encoding='utf-8')
+              print('cloud written', len(orig), '->', len(src))
+          else:
+              print('cloud no change')
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/FamilyExperience.jsx family-viewer/src/CloudAccess.jsx
+          if git diff --staged --quiet; then echo no change; else
+            git commit -m "i18n: finish FamilyExperience leftovers + CloudAccess strings"
+            git push origin master
+          fi
