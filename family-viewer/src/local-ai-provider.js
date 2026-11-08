@@ -1,47 +1,47 @@
 /**
  * Local browser AI via Hugging Face Transformers.js (ONNX + WebGPU/WASM).
  *
- * Model tree is in Git LFS under models/smollm2-360m/.
- * media.githubusercontent.com serves real bytes only when the URL uses a
- * *commit SHA* — the `master` ref 404s some files (e.g. config.json) and
- * raw.githubusercontent.com returns LFS pointer text (breaks ONNX protobuf).
+ * Model tree is in Git LFS under models/smollm2-360m/ (~112MB ONNX).
+ * Served from media.githubusercontent.com using a commit SHA.
+ *
+ * On phones this download is unreliable (timeouts / network error), so we
+ * skip the local model on mobile and ask users to use Chrome + window.ai
+ * or a desktop browser.
  */
 
 const LOCAL_MODEL_NAME = 'smollm2-360m';
 const REPO = 'baobabprince/anafim';
 
-/** Fallback if GitHub API is rate-limited; updated when Publish AI model runs. */
-const FALLBACK_MODEL_SHA = '481eb7fcffb56fa9ceed4ded60268a3147e9c0bc';
+/** Commit that contains the full LFS model tree (config + onnx). */
+const MODEL_SHA = '481eb7fcffb56fa9ceed4ded60268a3147e9c0bc';
 
 let generatorPromise = null;
 let lastProgress = { status: 'idle', progress: 0 };
-let resolvedModelBase = null;
 
 export function getLocalAiProgress() {
   return { ...lastProgress };
 }
 
+export function isLikelyMobileDevice() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
+  // iPadOS 13+ may report as Mac; treat coarse pointer + no hover as mobile-ish
+  try {
+    if (navigator.maxTouchPoints > 1 && /Mac/i.test(ua)) return true;
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 export async function isLocalAiAvailable() {
   if (typeof window === 'undefined') return false;
+  // Available as a capability flag; getGenerator may still refuse on mobile.
   return true;
 }
 
-async function resolveCommitSha() {
-  try {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/commits/master`, {
-      headers: { Accept: 'application/vnd.github+json' },
-      cache: 'no-cache',
-    });
-    if (!res.ok) throw new Error(`commits API ${res.status}`);
-    const data = await res.json();
-    if (data?.sha) return data.sha;
-  } catch (err) {
-    console.warn('[AI Editor] commit SHA lookup failed, using fallback', err);
-  }
-  return FALLBACK_MODEL_SHA;
-}
-
-function mediaModelsBase(sha) {
+function mediaModelsBase(sha = MODEL_SHA) {
   return `https://media.githubusercontent.com/media/${REPO}/${sha}/models/`;
 }
 
@@ -60,38 +60,6 @@ async function urlOk(url) {
   } catch {
     return false;
   }
-}
-
-async function resolveModelBase() {
-  if (resolvedModelBase) return resolvedModelBase;
-
-  const sha = await resolveCommitSha();
-  const base = mediaModelsBase(sha);
-  const configUrl = `${base}${LOCAL_MODEL_NAME}/config.json`;
-  const onnxUrl = `${base}${LOCAL_MODEL_NAME}/onnx/model_q4f16.onnx`;
-
-  const configOk = await urlOk(configUrl);
-  const onnxOk = await urlOk(onnxUrl);
-  console.log('[AI Editor] media base', base, { configOk, onnxOk, sha });
-
-  if (configOk && onnxOk) {
-    resolvedModelBase = base;
-    return base;
-  }
-
-  // Last resort: hardcoded fallback SHA
-  if (sha !== FALLBACK_MODEL_SHA) {
-    const fb = mediaModelsBase(FALLBACK_MODEL_SHA);
-    if (
-      (await urlOk(`${fb}${LOCAL_MODEL_NAME}/config.json`)) &&
-      (await urlOk(`${fb}${LOCAL_MODEL_NAME}/onnx/model_q4f16.onnx`))
-    ) {
-      resolvedModelBase = fb;
-      return fb;
-    }
-  }
-
-  return null;
 }
 
 async function canUseWebGpu() {
@@ -131,12 +99,28 @@ async function loadPipeline(pipeline, modelId, device, onProgress) {
   return generator;
 }
 
+function mobileSkipMessage() {
+  return (
+    'עריכת AI במכשיר זה דורשת הורדת מודל של כ־120MB, וזה בדרך כלל נכשל במובייל (network error / timeout).\n\n' +
+    'מה אפשר לעשות:\n' +
+    '• Chrome במחשב עם AI מובנה (window.ai) — הדרך המומלצת\n' +
+    '• או Wi‑Fi יציב במחשב / טאבלט חזק, לא בסלולר\n\n' +
+    'במובייל כרגע המודל המקומי כבוי בכוונה.'
+  );
+}
+
 function friendlyFetchError(err) {
   const msg = String(err?.message || err || '');
+  if (/network|Failed to fetch|Load failed|timeout/i.test(msg)) {
+    return (
+      'הורדת המודל המקומי נכשלה (שגיאת רשת).\n' +
+      'הקובץ כ־120MB משרתי GitHub. נסה Wi‑Fi יציב במחשב, או Chrome עם window.ai.\n\n' +
+      `פרטים: ${msg}`
+    );
+  }
   return (
-    'עריכת AI מקומית נכשלה בטעינת המודל.\n\n' +
-    '• ב-Chrome עם window.ai — נסה שם (בלי מודל מקומי).\n' +
-    '• המודל נטען מ-media.githubusercontent.com לפי commit SHA (Git LFS).\n\n' +
+    'עריכת AI מקומית נכשלה בטעינת המודל.\n' +
+    'מומלץ Chrome במחשב עם window.ai.\n\n' +
     `פרטים: ${msg}`
   );
 }
@@ -145,17 +129,26 @@ async function getGenerator(onProgress) {
   if (generatorPromise) return generatorPromise;
 
   generatorPromise = (async () => {
-    const modelBase = await resolveModelBase();
-    if (!modelBase) {
+    if (isLikelyMobileDevice()) {
+      throw new Error(mobileSkipMessage());
+    }
+
+    const modelBase = mediaModelsBase();
+    const configOk = await urlOk(`${modelBase}${LOCAL_MODEL_NAME}/config.json`);
+    const onnxOk = await urlOk(`${modelBase}${LOCAL_MODEL_NAME}/onnx/model_q4f16.onnx`);
+    console.log('[AI Editor] model check', { modelBase, configOk, onnxOk });
+
+    if (!configOk || !onnxOk) {
       throw new Error(
-        'לא נמצא מודל ONNX תקין ב-Git LFS media. ' +
-          'הרץ Publish AI model (Git LFS) או השתמש ב-Chrome עם window.ai.',
+        'לא ניתן לגשת לקבצי המודל ב-GitHub (LFS). ' +
+          'נסה שוב מאוחר יותר או השתמש ב-Chrome עם window.ai.',
       );
     }
 
     const { pipeline, env } = await import('@huggingface/transformers');
 
-    env.useBrowserCache = true;
+    // Avoid stale LFS-pointer cache from earlier experiments
+    env.useBrowserCache = false;
     env.allowLocalModels = true;
     env.allowRemoteModels = false;
     env.localModelPath = modelBase;
