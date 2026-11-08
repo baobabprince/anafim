@@ -22,18 +22,18 @@ jobs:
       - name: Setup Git LFS
         run: |
           git lfs install --local
+          git lfs track "models/**"
           git lfs track "*.onnx"
-          git lfs track "*.onnx_data"
           cat .gitattributes
 
-      - name: Download SmolLM2-135M instruct (q4f16 only)
+      - name: Download SmolLM2-135M instruct (q4f16)
         env:
           HF_HUB_ENABLE_HF_TRANSFER: "1"
         run: |
           set -euo pipefail
           python3 -m pip install -q "huggingface_hub[hf_transfer]"
-          DEST="models/smollm2-360m"
-          mkdir -p "$DEST/onnx"
+          rm -rf models/smollm2-360m
+          mkdir -p models/smollm2-360m/onnx
           python3 << 'PY'
           from huggingface_hub import hf_hub_download
           from pathlib import Path
@@ -54,30 +54,25 @@ jobs:
               "merges.txt",
           ]
           for name in text_files:
-              try:
-                  path = hf_hub_download(repo_id=repo, filename=name)
-                  shutil.copy2(path, dest / name)
-                  print("ok", name)
-              except Exception as e:
-                  print("skip", name, e)
+              path = hf_hub_download(repo_id=repo, filename=name)
+              shutil.copy2(path, dest / name)
+              print("ok", name, (dest / name).stat().st_size)
 
           for onnx_name in ("onnx/model_q4f16.onnx", "onnx/model_q4.onnx"):
               try:
                   path = hf_hub_download(repo_id=repo, filename=onnx_name)
                   out = dest / "onnx" / Path(onnx_name).name
                   shutil.copy2(path, out)
-                  print("onnx", out, out.stat().st_size // (1024 * 1024), "MB")
+                  print("onnx", out, out.stat().st_size)
                   break
               except Exception as e:
                   print("onnx miss", onnx_name, e)
           else:
               raise SystemExit("no onnx weight downloaded")
-
-          if not (dest / "config.json").exists():
-              raise SystemExit("config.json missing")
           PY
+          # Force re-add so JSON files migrate into LFS if needed
+          git lfs migrate import --no-rewrite --include="models/**" || true
           du -sh models/smollm2-360m
-          git lfs status || true
           find models/smollm2-360m -type f -printf '%s\t%p\n' | sort -n
 
       - name: Commit and push with LFS
@@ -85,14 +80,29 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .gitattributes models/smollm2-360m
+          git add .gitattributes models
           git status
-          git lfs ls-files || true
+          git lfs ls-files
           if git diff --staged --quiet; then
-            echo "No model changes to commit"
+            echo "No model changes"
             exit 0
           fi
-          git commit -m "feat(ai): add SmolLM2-135M q4f16 weights via Git LFS"
-          # Push LFS objects first, then refs
-          git lfs push origin master
+          git commit -m "feat(ai): store full SmolLM2 model tree in Git LFS"
+          git lfs push origin HEAD:master
           git push origin HEAD:master
+
+      - name: Verify media URL serves binary ONNX (not LFS pointer)
+        run: |
+          set -euo pipefail
+          # Give GitHub a moment to expose LFS media
+          sleep 5
+          URL="https://media.githubusercontent.com/media/baobabprince/anafim/master/models/smollm2-360m/onnx/model_q4f16.onnx"
+          echo "Checking $URL"
+          # First bytes of a valid ONNX protobuf are not the LFS pointer header
+          HEAD=$(curl -sL "$URL" | head -c 64 | xxd -p | head -c 40)
+          echo "head hex: $HEAD"
+          if curl -sL "$URL" | head -c 20 | grep -q "version https://git-lfs"; then
+            echo "ERROR: still receiving LFS pointer text"
+            exit 1
+          fi
+          echo "OK: does not look like an LFS pointer"
