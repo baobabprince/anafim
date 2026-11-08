@@ -1,16 +1,16 @@
 /**
  * Local browser AI via Hugging Face Transformers.js (ONNX + WebGPU/WASM).
  *
- * Weights live under models/smollm2-360m/ with *.onnx in Git LFS.
- * GitHub Pages cannot serve LFS blobs. We load the whole tree from
- * raw.githubusercontent.com (JSON as-is; ONNX redirects to LFS media).
+ * Full model tree is stored in Git LFS under models/smollm2-360m/.
+ * Load from media.githubusercontent.com so ONNX is real binary bytes,
+ * not the LFS pointer text (which causes protobuf parsing failed).
  */
 
 const LOCAL_MODEL_NAME = 'smollm2-360m';
 
-/** Single origin for both regular and LFS files (redirects for .onnx). */
-const GITHUB_RAW_MODELS_BASE =
-  'https://raw.githubusercontent.com/baobabprince/anafim/master/models/';
+/** LFS media CDN — serves actual file bytes for LFS-tracked paths. */
+const GITHUB_LFS_MEDIA_BASE =
+  'https://media.githubusercontent.com/media/baobabprince/anafim/master/models/';
 
 let generatorPromise = null;
 let lastProgress = { status: 'idle', progress: 0 };
@@ -30,6 +30,26 @@ function pagesModelsBaseUrl() {
   return `${base}models/`;
 }
 
+async function urlLooksLikeOnnxBinary(url) {
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Range: 'bytes=0-63' },
+      cache: 'no-cache',
+      mode: 'cors',
+    });
+    if (!(res.ok || res.status === 206)) return false;
+    const buf = new Uint8Array(await res.arrayBuffer());
+    const asText = new TextDecoder().decode(buf);
+    // LFS pointer starts with: version https://git-lfs.github.com/spec/v1
+    if (asText.startsWith('version https://git-lfs')) return false;
+    // ONNX / protobuf is binary — not pure printable ASCII of a pointer
+    return buf.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function urlOk(url) {
   try {
     const res = await fetch(url, { method: 'HEAD', cache: 'no-cache', mode: 'cors' });
@@ -46,14 +66,11 @@ async function urlOk(url) {
   }
 }
 
-/**
- * Prefer same-origin Pages copy if complete; otherwise GitHub raw (+ LFS).
- * @returns {Promise<string|null>} base URL ending with models/
- */
 async function resolveModelBase() {
   if (resolvedModelBase) return resolvedModelBase;
 
-  const candidates = [pagesModelsBaseUrl(), GITHUB_RAW_MODELS_BASE];
+  // Prefer LFS media (real ONNX bytes). Pages almost never has the full model.
+  const candidates = [GITHUB_LFS_MEDIA_BASE, pagesModelsBaseUrl()];
 
   for (const base of candidates) {
     const configUrl = `${base}${LOCAL_MODEL_NAME}/config.json`;
@@ -63,9 +80,9 @@ async function resolveModelBase() {
       console.log('[AI Editor] no config at', configUrl);
       continue;
     }
-    const onnxOk = await urlOk(onnxUrl);
-    if (!onnxOk) {
-      console.log('[AI Editor] config ok but no onnx at', onnxUrl);
+    const onnxBinary = await urlLooksLikeOnnxBinary(onnxUrl);
+    if (!onnxBinary) {
+      console.log('[AI Editor] onnx missing or LFS pointer at', onnxUrl);
       continue;
     }
     resolvedModelBase = base;
@@ -117,7 +134,7 @@ function friendlyFetchError(err) {
   return (
     'עריכת AI מקומית נכשלה בטעינת המודל.\n\n' +
     '• ב-Chrome עם window.ai — נסה שם (בלי מודל מקומי).\n' +
-    '• המודל נטען מ-raw.githubusercontent.com (ONNX דרך Git LFS).\n\n' +
+    '• המודל נטען מ-media.githubusercontent.com (Git LFS).\n\n' +
     `פרטים: ${msg}`
   );
 }
@@ -131,7 +148,7 @@ async function getGenerator(onProgress) {
     const modelBase = await resolveModelBase();
     if (!modelBase) {
       throw new Error(
-        'לא נמצא מודל ONNX. הרץ Publish AI model (Git LFS) או השתמש ב-Chrome עם window.ai.',
+        'לא נמצא מודל ONNX תקין (בינארי). הרץ Publish AI model (Git LFS) או השתמש ב-Chrome עם window.ai.',
       );
     }
 
