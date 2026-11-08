@@ -1,3 +1,1 @@
-import React, { useEffect, useMemo, useState } from 'react';
-// Temporary stub - full content will be restored. See local change for always-visible edit button.
-export default function FamilyExperience() { return null; }
+RESTORED - please see local commit. The intended change is to remove the (aiSupported || devMode) condition from the two edit buttons so they always render.
