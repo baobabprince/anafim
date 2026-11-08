@@ -1,0 +1,25 @@
+name: Add source field tests
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patch
+        run: python3 scripts/add_source_field_tests.py
+      - name: Run unit tests for AI editor
+        working-directory: family-viewer
+        run: |
+          npm ci
+          node --test tests/gedcom-ai-editor.test.js
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/tests/gedcom-ai-editor.test.js
+          git status
+          git commit -m "test(ai): add tests for source (מקור) field in person AI editor" || exit 0
+          git push
