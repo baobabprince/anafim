@@ -1,0 +1,4 @@
+# ONNX model weights exceed GitHub's 100MB soft limit for regular git objects.
+# Pages cannot serve LFS blobs; the app loads them from media.githubusercontent.com.
+*.onnx filter=lfs diff=lfs merge=lfs -text
+*.onnx_data filter=lfs diff=lfs merge=lfs -text
