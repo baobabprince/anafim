@@ -1,15 +1,33 @@
 /**
- * AI Service for GEDCOM editing using window.ai / window.ai.languageModel / ai.languageModel
+ * AI Service for GEDCOM editing.
+ * Supports Google Gemini API (optimal for Mobile/Safari/Firefox),
+ * Chrome Prompt API (window.ai), and local browser model (Transformers.js ONNX/WASM).
  */
 
 import { validatePersonUpdates, formatToGedcomDate } from './gedcom-ai-editor.js';
 import { isLocalAiAvailable, promptLocalAi, getLocalAiProgress } from './local-ai-provider.js';
+import {
+  getGeminiApiKey,
+  setGeminiApiKey,
+  removeGeminiApiKey,
+  isGeminiAvailable,
+  testGeminiApiKey,
+  promptGemini,
+} from './gemini-ai-provider.js';
+
+export {
+  getLocalAiProgress,
+  getGeminiApiKey,
+  setGeminiApiKey,
+  removeGeminiApiKey,
+  isGeminiAvailable,
+  testGeminiApiKey,
+  promptGemini,
+};
 
 /**
- * Checks if window.ai or equivalent browser AI interface is available.
+ * Checks if window.ai or equivalent Chrome Built-in AI interface is available.
  */
-export { getLocalAiProgress };
-
 export async function isWindowAiAvailable() {
   if (typeof window === 'undefined') return false;
 
@@ -30,6 +48,43 @@ export async function isWindowAiAvailable() {
     console.warn('Error checking window.ai capabilities:', err);
   }
   return false;
+}
+
+/**
+ * Returns info on the currently active AI provider and available alternatives.
+ */
+export async function getActiveAiProvider() {
+  const hasGemini = isGeminiAvailable();
+  const hasWindowAi = await isWindowAiAvailable();
+  const hasLocal = await isLocalAiAvailable();
+
+  if (hasGemini) {
+    return {
+      id: 'gemini',
+      label: 'Google Gemini',
+      badge: 'ענן מהיר וחינמי',
+      isCloud: true,
+      hasKey: true,
+    };
+  }
+
+  if (hasWindowAi) {
+    return {
+      id: 'window.ai',
+      label: 'Chrome Built-in AI',
+      badge: 'מקומי בדפדפן',
+      isCloud: false,
+      hasKey: false,
+    };
+  }
+
+  return {
+    id: 'local',
+    label: 'מודל מקומי (Transformers.js)',
+    badge: 'מקומי (WASM/WebGPU)',
+    isCloud: false,
+    hasKey: false,
+  };
 }
 
 /**
@@ -85,44 +140,69 @@ Return ONLY the JSON object with the updated fields.`;
 }
 
 /**
- * Calls window.ai to analyze free text and returns { valid, sanitized, diff, rawResponse, errors }
+ * Analyzes free text using the best available AI provider and returns validated updates.
  */
-export async function analyzePersonTextWithAi(person, freeText, { devMode = false } = {}) {
+export async function analyzePersonTextWithAi(
+  person,
+  freeText,
+  { devMode = false, onProgress, provider } = {}
+) {
   const prompt = buildPrompt(person, freeText);
 
   let rawResponse = '';
   let session = null;
+  let usedProvider = provider || null;
 
   try {
-    if (window.ai?.languageModel?.create) {
-      session = await window.ai.languageModel.create({
-        systemPrompt: 'You are an expert genealogy assistant that outputs only valid JSON conforming strictly to the requested schema.'
-      });
-      rawResponse = await session.prompt(prompt);
-    } else if (typeof window.ai?.createTextSession === 'function') {
-      session = await window.ai.createTextSession();
-      rawResponse = await session.prompt(prompt);
-    } else if (typeof window.ai?.prompt === 'function') {
-      rawResponse = await window.ai.prompt(prompt);
-    } else if (typeof window.model?.prompt === 'function') {
-      rawResponse = await window.model.prompt(prompt);
-    } else if (await isLocalAiAvailable()) {
-      console.log('[AI Editor] window.ai unavailable – using local Hugging Face model');
-      rawResponse = await promptLocalAi(prompt);
+    // 1. Explicit or configured Gemini API
+    if (provider === 'gemini' || (!provider && isGeminiAvailable())) {
+      usedProvider = 'gemini';
+      console.log('[AI Editor] Using Gemini API provider');
+      rawResponse = await promptGemini(prompt);
+    }
+    // 2. Explicit or available Chrome window.ai
+    else if (provider === 'window.ai' || (!provider && (await isWindowAiAvailable()))) {
+      usedProvider = 'window.ai';
+      console.log('[AI Editor] Using Chrome window.ai Prompt API');
+
+      if (window.ai?.languageModel?.create) {
+        session = await window.ai.languageModel.create({
+          systemPrompt:
+            'You are an expert genealogy assistant that outputs only valid JSON conforming strictly to the requested schema.',
+        });
+        rawResponse = await session.prompt(prompt);
+      } else if (typeof window.ai?.createTextSession === 'function') {
+        session = await window.ai.createTextSession();
+        rawResponse = await session.prompt(prompt);
+      } else if (typeof window.ai?.prompt === 'function') {
+        rawResponse = await window.ai.prompt(prompt);
+      } else if (typeof window.model?.prompt === 'function') {
+        rawResponse = await window.model.prompt(prompt);
+      }
+    }
+    // 3. In-browser local model (Transformers.js ONNX WebGPU/WASM)
+    else if (await isLocalAiAvailable()) {
+      usedProvider = 'local';
+      console.log('[AI Editor] Using local in-browser model (Transformers.js)');
+      rawResponse = await promptLocalAi(prompt, { onProgress });
     } else {
-      throw new Error('ממשק window.ai אינו זמין בדפדפן זה, וגם מודל מקומי לא זמין.');
+      throw new Error(
+        'לא נמצא ספק AI פעיל בדפדפן זה. מומלץ להזין מפתח Gemini חינמי בחלון העריכה.',
+      );
     }
   } catch (err) {
-    console.error('[AI Editor] Call to window.ai failed:', err);
+    console.error(`[AI Editor] Call to ${usedProvider || 'AI'} failed:`, err);
     throw err;
   } finally {
     if (session && typeof session.destroy === 'function') {
-      try { session.destroy(); } catch (_) {}
+      try {
+        session.destroy();
+      } catch (_) {}
     }
   }
 
   // Log raw AI response to console
-  console.log('[AI Editor] Raw response received from window.ai:\n', rawResponse);
+  console.log(`[AI Editor] Raw response received (${usedProvider}):\n`, rawResponse);
 
   // Extract JSON from response
   let jsonString = rawResponse.trim();
@@ -150,7 +230,8 @@ export async function analyzePersonTextWithAi(person, freeText, { devMode = fals
       sanitized: null,
       diff: {},
       rawResponse,
-      parsedJson: null
+      parsedJson: null,
+      provider: usedProvider,
     };
   }
 
@@ -167,7 +248,7 @@ export async function analyzePersonTextWithAi(person, freeText, { devMode = fals
     deathPlace: person.death?.place,
     deathCause: person.death?.cause,
     occupation: person.occupation,
-    notes: person.notes
+    notes: person.notes,
   });
 
   // Log validation result & diff
@@ -182,6 +263,7 @@ export async function analyzePersonTextWithAi(person, freeText, { devMode = fals
   return {
     ...validation,
     rawResponse,
-    parsedJson
+    parsedJson,
+    provider: usedProvider,
   };
 }

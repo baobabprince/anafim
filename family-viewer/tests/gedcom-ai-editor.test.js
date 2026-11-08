@@ -7,7 +7,16 @@ import {
   updatePersonRecord,
   applyPersonUpdatesToGedcom
 } from '../src/gedcom-ai-editor.js';
-import { buildPrompt, analyzePersonTextWithAi } from '../src/ai-service.js';
+import {
+  buildPrompt,
+  analyzePersonTextWithAi,
+  getGeminiApiKey,
+  setGeminiApiKey,
+  removeGeminiApiKey,
+  isGeminiAvailable,
+  getActiveAiProvider,
+  promptGemini
+} from '../src/ai-service.js';
 import { parseGedcom } from '../src/gedcom.js';
 
 test('formatToGedcomDate correctly parses various date formats', () => {
@@ -268,4 +277,114 @@ test('analyzePersonTextWithAi works with mock window.ai and logs diff', async ()
   assert.equal(result.sanitized.deathPlace, 'ירושלים');
   assert.equal(result.sanitized.occupation, 'רופא');
   assert.equal(result.diff.deathDate.new, '1985');
+});
+
+test('Gemini API key management in localStorage', () => {
+  const store = {};
+  globalThis.window = {
+    localStorage: {
+      getItem: (k) => store[k] || null,
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; }
+    }
+  };
+
+  assert.equal(isGeminiAvailable(), false);
+  setGeminiApiKey('AIzaSyTest123');
+  assert.equal(isGeminiAvailable(), true);
+  assert.equal(getGeminiApiKey(), 'AIzaSyTest123');
+
+  removeGeminiApiKey();
+  assert.equal(isGeminiAvailable(), false);
+  assert.equal(getGeminiApiKey(), '');
+});
+
+test('promptGemini successfully calls Gemini API and returns text', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = '';
+  let requestedBody = null;
+
+  globalThis.fetch = async (url, options) => {
+    requestedUrl = url;
+    requestedBody = JSON.parse(options.body);
+    return {
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: '{"occupation": "נגר", "birthPlace": "תל אביב"}' }
+              ]
+            }
+          }
+        ]
+      })
+    };
+  };
+
+  try {
+    const response = await promptGemini('Test prompt', { apiKey: 'AIzaFakeKey' });
+    assert.ok(requestedUrl.includes('AIzaFakeKey'));
+    assert.ok(requestedUrl.includes('gemini-1.5-flash'));
+    assert.equal(requestedBody.generationConfig.responseMimeType, 'application/json');
+    assert.equal(response, '{"occupation": "נגר", "birthPlace": "תל אביב"}');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('analyzePersonTextWithAi prioritizes Gemini API when key is configured', async () => {
+  const store = { anafim_gemini_api_key: 'AIzaGeminiKey' };
+  globalThis.window = {
+    localStorage: {
+      getItem: (k) => store[k] || null,
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; }
+    }
+  };
+
+  const originalFetch = globalThis.fetch;
+  let calledGemini = false;
+
+  globalThis.fetch = async (url) => {
+    calledGemini = true;
+    return {
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: JSON.stringify({ occupation: 'נגר', birthPlace: 'חיפה' }) }
+              ]
+            }
+          }
+        ]
+      })
+    };
+  };
+
+  try {
+    const person = {
+      id: '@I2@',
+      given: 'משה',
+      surname: 'לוי',
+      sex: 'M',
+      birth: { date: '1920' }
+    };
+
+    const providerInfo = await getActiveAiProvider();
+    assert.equal(providerInfo.id, 'gemini');
+
+    const result = await analyzePersonTextWithAi(person, 'היה נגר ונולד בחיפה');
+    assert.equal(calledGemini, true);
+    assert.equal(result.valid, true);
+    assert.equal(result.sanitized.occupation, 'נגר');
+    assert.equal(result.sanitized.birthPlace, 'חיפה');
+    assert.equal(result.provider, 'gemini');
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete store.anafim_gemini_api_key;
+  }
 });

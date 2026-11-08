@@ -1,22 +1,19 @@
 /**
  * Local browser AI via Hugging Face Transformers.js (ONNX + WebGPU/WASM).
  *
- * Model tree is in Git LFS under models/smollm2-360m/ (~112MB ONNX).
- * Served from media.githubusercontent.com using a commit SHA.
- *
- * On phones this download is unreliable (timeouts / network error), so we
- * skip the local model on mobile and ask users to use Chrome + window.ai
- * or a desktop browser.
+ * Supports WebGPU (with fp16 or q4) and WASM fallback for Safari, Firefox, and Mobile.
  */
 
 const LOCAL_MODEL_NAME = 'smollm2-360m';
+const REMOTE_FALLBACK_MODEL = 'HuggingFaceTB/SmolLM2-135M-Instruct';
 const REPO = 'baobabprince/anafim';
 
-/** Commit that contains the full LFS model tree (config + onnx). */
-const MODEL_SHA = '481eb7fcffb56fa9ceed4ded60268a3147e9c0bc';
+/** Fallback if GitHub API is rate-limited; updated when Publish AI model runs. */
+const FALLBACK_MODEL_SHA = '481eb7fcffb56fa9ceed4ded60268a3147e9c0bc';
 
 let generatorPromise = null;
 let lastProgress = { status: 'idle', progress: 0 };
+let resolvedModelBase = null;
 
 export function getLocalAiProgress() {
   return { ...lastProgress };
@@ -25,23 +22,33 @@ export function getLocalAiProgress() {
 export function isLikelyMobileDevice() {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
-  if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
-  // iPadOS 13+ may report as Mac; treat coarse pointer + no hover as mobile-ish
-  try {
-    if (navigator.maxTouchPoints > 1 && /Mac/i.test(ua)) return true;
-  } catch {
-    // ignore
-  }
-  return false;
+  const mobileUa = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+  const touch = typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1;
+  const coarse = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  return Boolean(mobileUa || (touch && coarse));
 }
 
 export async function isLocalAiAvailable() {
   if (typeof window === 'undefined') return false;
-  // Available as a capability flag; getGenerator may still refuse on mobile.
   return true;
 }
 
-function mediaModelsBase(sha = MODEL_SHA) {
+async function resolveCommitSha() {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/commits/master`, {
+      headers: { Accept: 'application/vnd.github+json' },
+      cache: 'no-cache',
+    });
+    if (!res.ok) throw new Error(`commits API ${res.status}`);
+    const data = await res.json();
+    if (data?.sha) return data.sha;
+  } catch (err) {
+    console.warn('[AI Editor] commit SHA lookup failed, using fallback', err);
+  }
+  return FALLBACK_MODEL_SHA;
+}
+
+function mediaModelsBase(sha) {
   return `https://media.githubusercontent.com/media/${REPO}/${sha}/models/`;
 }
 
@@ -62,13 +69,54 @@ async function urlOk(url) {
   }
 }
 
-async function canUseWebGpu() {
+async function resolveModelBase() {
+  if (resolvedModelBase) return resolvedModelBase;
+
+  const sha = await resolveCommitSha();
+  const base = mediaModelsBase(sha);
+  const configUrl = `${base}${LOCAL_MODEL_NAME}/config.json`;
+  const onnxUrl = `${base}${LOCAL_MODEL_NAME}/onnx/model_q4f16.onnx`;
+
+  const configOk = await urlOk(configUrl);
+  const onnxOk = await urlOk(onnxUrl);
+  console.log('[AI Editor] media base', base, { configOk, onnxOk, sha });
+
+  if (configOk && onnxOk) {
+    resolvedModelBase = base;
+    return base;
+  }
+
+  // Last resort: hardcoded fallback SHA
+  if (sha !== FALLBACK_MODEL_SHA) {
+    const fb = mediaModelsBase(FALLBACK_MODEL_SHA);
+    if (
+      (await urlOk(`${fb}${LOCAL_MODEL_NAME}/config.json`)) &&
+      (await urlOk(`${fb}${LOCAL_MODEL_NAME}/onnx/model_q4f16.onnx`))
+    ) {
+      resolvedModelBase = fb;
+      return fb;
+    }
+  }
+
+  return null;
+}
+
+async function hasLocalModelFile(base, filename) {
+  if (!base) return false;
+  return await urlOk(`${base}${LOCAL_MODEL_NAME}/onnx/${filename}`);
+}
+
+async function getGpuInfo() {
   try {
-    if (typeof navigator === 'undefined' || !navigator.gpu) return false;
+    if (typeof navigator === 'undefined' || !navigator.gpu) return null;
     const adapter = await navigator.gpu.requestAdapter();
-    return Boolean(adapter);
+    if (!adapter) return null;
+    return {
+      adapter,
+      hasF16: Boolean(adapter.features?.has('shader-f16')),
+    };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -76,52 +124,46 @@ function progressCb(device, onProgress) {
   return (info) => {
     lastProgress = {
       status: info.status || 'loading',
-      progress: typeof info.progress === 'number' ? info.progress : lastProgress.progress,
+      progress: typeof info.progress === 'number' ? Math.round(info.progress) : lastProgress.progress,
       file: info.file,
+      loaded: info.loaded,
+      total: info.total,
       device,
     };
     if (onProgress) onProgress(lastProgress);
   };
 }
 
-async function loadPipeline(pipeline, modelId, device, onProgress) {
-  lastProgress = { status: 'loading', progress: 0, device, model: modelId };
+async function loadPipeline(pipeline, modelId, { device, dtype, onProgress }) {
+  lastProgress = { status: 'loading', progress: 0, device, model: modelId, dtype };
   if (onProgress) onProgress(lastProgress);
 
   const generator = await pipeline('text-generation', modelId, {
     device,
-    dtype: 'q4f16',
+    dtype,
     progress_callback: progressCb(device, onProgress),
   });
 
-  lastProgress = { status: 'ready', progress: 100, device, model: modelId };
+  lastProgress = { status: 'ready', progress: 100, device, model: modelId, dtype };
   if (onProgress) onProgress(lastProgress);
   return generator;
-}
-
-function mobileSkipMessage() {
-  return (
-    'עריכת AI במכשיר זה דורשת הורדת מודל של כ־120MB, וזה בדרך כלל נכשל במובייל (network error / timeout).\n\n' +
-    'מה אפשר לעשות:\n' +
-    '• Chrome במחשב עם AI מובנה (window.ai) — הדרך המומלצת\n' +
-    '• או Wi‑Fi יציב במחשב / טאבלט חזק, לא בסלולר\n\n' +
-    'במובייל כרגע המודל המקומי כבוי בכוונה.'
-  );
 }
 
 function friendlyFetchError(err) {
   const msg = String(err?.message || err || '');
   if (/network|Failed to fetch|Load failed|timeout/i.test(msg)) {
     return (
-      'הורדת המודל המקומי נכשלה (שגיאת רשת).\n' +
-      'הקובץ כ־120MB משרתי GitHub. נסה Wi‑Fi יציב במחשב, או Chrome עם window.ai.\n\n' +
+      'הורדת המודל המקומי נכשלה (שגיאת רשת).\n\n' +
+      '• מומלץ: הזן מפתח Google Gemini חינמי בחלון העריכה (פועל מיידית בכל הניידים וב-Safari/Firefox ללא הורדה כבדה).\n' +
+      '• ב-Chrome שולחני: ניתן להשתמש ב-window.ai המובנה.\n\n' +
       `פרטים: ${msg}`
     );
   }
   return (
-    'עריכת AI מקומית נכשלה בטעינת המודל.\n' +
-    'מומלץ Chrome במחשב עם window.ai.\n\n' +
-    `פרטים: ${msg}`
+    'עריכת AI מקומית בדפדפן נכשלה.\n\n' +
+    '• מומלץ: הזן מפתח Google Gemini חינמי בחלון העריכה (פועל מיידית בכל הניידים וב-Safari/Firefox ללא הורדה כבדה).\n' +
+    '• ב-Chrome שולחני: ניתן להשתמש ב-window.ai המובנה.\n\n' +
+    `פרטים טכניים: ${msg}`
   );
 }
 
@@ -129,29 +171,9 @@ async function getGenerator(onProgress) {
   if (generatorPromise) return generatorPromise;
 
   generatorPromise = (async () => {
-    if (isLikelyMobileDevice()) {
-      throw new Error(mobileSkipMessage());
-    }
-
-    const modelBase = mediaModelsBase();
-    const configOk = await urlOk(`${modelBase}${LOCAL_MODEL_NAME}/config.json`);
-    const onnxOk = await urlOk(`${modelBase}${LOCAL_MODEL_NAME}/onnx/model_q4f16.onnx`);
-    console.log('[AI Editor] model check', { modelBase, configOk, onnxOk });
-
-    if (!configOk || !onnxOk) {
-      throw new Error(
-        'לא ניתן לגשת לקבצי המודל ב-GitHub (LFS). ' +
-          'נסה שוב מאוחר יותר או השתמש ב-Chrome עם window.ai.',
-      );
-    }
-
     const { pipeline, env } = await import('@huggingface/transformers');
 
-    // Avoid stale LFS-pointer cache from earlier experiments
-    env.useBrowserCache = false;
-    env.allowLocalModels = true;
-    env.allowRemoteModels = false;
-    env.localModelPath = modelBase;
+    env.useBrowserCache = true;
 
     try {
       if (env.backends?.onnx?.wasm) {
@@ -161,17 +183,72 @@ async function getGenerator(onProgress) {
       // ignore
     }
 
-    const preferGpu = await canUseWebGpu();
-    const devices = preferGpu ? ['webgpu', 'wasm'] : ['wasm'];
+    const modelBase = await resolveModelBase();
+    const gpuInfo = await getGpuInfo();
+    const attempts = [];
+
+    // 1. WebGPU attempts (desktop Chrome/Edge, or supported WebGPU devices)
+    if (gpuInfo) {
+      if (gpuInfo.hasF16 && modelBase) {
+        attempts.push({
+          device: 'webgpu',
+          dtype: 'q4f16',
+          modelId: LOCAL_MODEL_NAME,
+          localPath: modelBase,
+        });
+      }
+      attempts.push({
+        device: 'webgpu',
+        dtype: 'q4',
+        modelId: REMOTE_FALLBACK_MODEL,
+        localPath: null,
+      });
+    }
+
+    // 2. WASM attempts (Safari, Firefox, Mobile, or fallback from WebGPU)
+    // In WASM, dtype MUST be q4 with float32 activations; q4f16 is not supported by WASM
+    const localHasQ4 = modelBase ? await hasLocalModelFile(modelBase, 'model_q4.onnx') : false;
+    if (localHasQ4) {
+      attempts.push({
+        device: 'wasm',
+        dtype: 'q4',
+        modelId: LOCAL_MODEL_NAME,
+        localPath: modelBase,
+      });
+    }
+
+    // Remote Hugging Face Hub fallback for WASM
+    attempts.push({
+      device: 'wasm',
+      dtype: 'q4',
+      modelId: REMOTE_FALLBACK_MODEL,
+      localPath: null,
+    });
 
     let lastError = null;
-    for (const device of devices) {
+    for (const attempt of attempts) {
       try {
-        console.log(`[AI Editor] Loading ${LOCAL_MODEL_NAME} on ${device} from ${modelBase}`);
-        return await loadPipeline(pipeline, LOCAL_MODEL_NAME, device, onProgress);
+        console.log(
+          `[AI Editor] Attempting local model ${attempt.modelId} on ${attempt.device} (dtype=${attempt.dtype})`,
+        );
+
+        if (attempt.localPath) {
+          env.allowLocalModels = true;
+          env.allowRemoteModels = false;
+          env.localModelPath = attempt.localPath;
+        } else {
+          env.allowLocalModels = false;
+          env.allowRemoteModels = true;
+        }
+
+        return await loadPipeline(pipeline, attempt.modelId, {
+          device: attempt.device,
+          dtype: attempt.dtype,
+          onProgress,
+        });
       } catch (err) {
         lastError = err;
-        console.warn(`[AI Editor] ${device} failed:`, err?.message || err);
+        console.warn(`[AI Editor] ${attempt.device} (${attempt.dtype}) failed:`, err?.message || err);
       }
     }
 

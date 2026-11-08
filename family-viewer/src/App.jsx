@@ -816,7 +816,8 @@ export default function App() {
   const menuRef = useRef(null);
 
   useEffect(() => {
-    isWindowAiAvailable().then(avail => setAiSupported(avail));
+    // AI editing is supported across all browsers via Gemini API, window.ai, or local model
+    setAiSupported(true);
   }, []);
 
   useEffect(() => {
