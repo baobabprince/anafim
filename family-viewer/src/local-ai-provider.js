@@ -14,39 +14,95 @@ export function getLocalAiProgress() {
 
 export async function isLocalAiAvailable() {
   if (typeof window === 'undefined') return false;
-  // Transformers.js works with WebGPU or WASM fallback in modern browsers
   return true;
+}
+
+/** True only if WebGPU adapter can actually be acquired. */
+async function canUseWebGpu() {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.gpu) return false;
+    const adapter = await navigator.gpu.requestAdapter();
+    return Boolean(adapter);
+  } catch {
+    return false;
+  }
+}
+
+async function loadPipeline(pipeline, device, onProgress) {
+  lastProgress = { status: 'loading', progress: 0, device };
+  if (onProgress) onProgress(lastProgress);
+
+  const opts = {
+    device,
+    progress_callback: (info) => {
+      lastProgress = {
+        status: info.status || 'loading',
+        progress: typeof info.progress === 'number' ? info.progress : lastProgress.progress,
+        file: info.file,
+        device,
+      };
+      if (onProgress) onProgress(lastProgress);
+    },
+  };
+
+  // Quantization: prefer q4 on GPU, q8 on CPU/WASM for broader compatibility
+  if (device === 'webgpu') {
+    opts.dtype = 'q4';
+  } else {
+    opts.dtype = 'q8';
+  }
+
+  const generator = await pipeline('text-generation', MODEL_ID, opts);
+  lastProgress = { status: 'ready', progress: 100, device };
+  if (onProgress) onProgress(lastProgress);
+  return generator;
 }
 
 async function getGenerator(onProgress) {
   if (generatorPromise) return generatorPromise;
 
   generatorPromise = (async () => {
-    const { pipeline, env } = await import('@huggingface/transformers');
+    const { pipeline } = await import('@huggingface/transformers');
 
-    // Prefer WebGPU when available; WASM otherwise
-    const device = (typeof navigator !== 'undefined' && navigator.gpu) ? 'webgpu' : 'wasm';
+    const preferGpu = await canUseWebGpu();
+    const devices = preferGpu ? ['webgpu', 'wasm'] : ['wasm'];
 
-    lastProgress = { status: 'loading', progress: 0, device };
-    if (onProgress) onProgress(lastProgress);
+    let lastError = null;
+    for (const device of devices) {
+      try {
+        console.log(`[AI Editor] Loading local model on device=${device}`);
+        return await loadPipeline(pipeline, device, onProgress);
+      } catch (err) {
+        lastError = err;
+        console.warn(`[AI Editor] device=${device} failed:`, err?.message || err);
+        // continue to next device
+      }
+    }
 
-    const generator = await pipeline('text-generation', MODEL_ID, {
-      device,
-      dtype: device === 'webgpu' ? 'q4' : 'q8',
-      progress_callback: (info) => {
-        lastProgress = {
-          status: info.status || 'loading',
-          progress: typeof info.progress === 'number' ? info.progress : lastProgress.progress,
-          file: info.file,
-          device,
-        };
-        if (onProgress) onProgress(lastProgress);
-      },
-    });
+    // Last resort: try without explicit device (library default)
+    try {
+      console.log('[AI Editor] Retrying local model with library default device');
+      lastProgress = { status: 'loading', progress: 0, device: 'auto' };
+      if (onProgress) onProgress(lastProgress);
+      const generator = await pipeline('text-generation', MODEL_ID, {
+        progress_callback: (info) => {
+          lastProgress = {
+            status: info.status || 'loading',
+            progress: typeof info.progress === 'number' ? info.progress : lastProgress.progress,
+            file: info.file,
+            device: 'auto',
+          };
+          if (onProgress) onProgress(lastProgress);
+        },
+      });
+      lastProgress = { status: 'ready', progress: 100, device: 'auto' };
+      if (onProgress) onProgress(lastProgress);
+      return generator;
+    } catch (err) {
+      lastError = err;
+    }
 
-    lastProgress = { status: 'ready', progress: 100, device };
-    if (onProgress) onProgress(lastProgress);
-    return generator;
+    throw lastError || new Error('לא ניתן לטעון מודל מקומי (WebGPU ו-WASM נכשלו).');
   })().catch((err) => {
     generatorPromise = null;
     lastProgress = { status: 'error', progress: 0, error: String(err?.message || err) };
@@ -71,7 +127,6 @@ export async function promptLocalAi(prompt, { onProgress } = {}) {
     { role: 'user', content: prompt },
   ];
 
-  // Qwen2.5 chat template is applied by the tokenizer when using the pipeline with messages
   const result = await generator(messages, {
     max_new_tokens: 400,
     temperature: 0.1,
