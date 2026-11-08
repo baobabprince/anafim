@@ -1,0 +1,30 @@
+name: Add local HF AI provider
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patch
+        run: python3 scripts/add_local_hf_ai_provider.py
+      - name: Install deps and verify build
+        working-directory: family-viewer
+        run: |
+          npm ci
+          npm install @huggingface/transformers@^3.5.0 --save
+          # Quick syntax check of the new module (node can import after install)
+          node -e "import('./src/local-ai-provider.js').then(m => console.log('local-ai-provider exports:', Object.keys(m))).catch(e => { console.error(e); process.exit(1); })"
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/package.json family-viewer/package-lock.json family-viewer/src/local-ai-provider.js family-viewer/src/ai-service.js
+          git status
+          git commit -m "feat(ai): add local Hugging Face Qwen2.5-0.5B provider as fallback
+
+When window.ai is unavailable (Safari, Firefox, mobile), fall back to
+onnx-community/Qwen2.5-0.5B-Instruct via Transformers.js (WebGPU or WASM)." || exit 0
+          git push
