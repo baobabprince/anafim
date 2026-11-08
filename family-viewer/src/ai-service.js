@@ -11,22 +11,50 @@ export async function isWindowAiAvailable() {
   if (typeof window === 'undefined') return false;
 
   try {
-    // Check for Chrome Built-in Prompt API (window.ai.languageModel or window.model or ai.languageModel)
-    if (window.ai?.languageModel) {
-      if (typeof window.ai.languageModel.capabilities === 'function') {
-        const capabilities = await window.ai.languageModel.capabilities();
+    // Check for Chrome Built-in Prompt API: global ai or window.ai
+    const aiObj = window.ai || globalThis.ai;
+    if (aiObj?.languageModel) {
+      if (typeof aiObj.languageModel.capabilities === 'function') {
+        const capabilities = await aiObj.languageModel.capabilities();
         return capabilities?.available !== 'no';
       }
       return true;
     }
     if (window.model) return true;
-    if (typeof window.ai?.createTextSession === 'function') return true;
-    if (typeof window.ai?.prompt === 'function') return true;
-    if (window.ai) return true;
+    if (typeof aiObj?.createTextSession === 'function') return true;
+    if (typeof aiObj?.prompt === 'function') return true;
+    if (aiObj) return true;
   } catch (err) {
     console.warn('Error checking window.ai capabilities:', err);
   }
   return false;
+}
+
+/**
+ * Fallback parser used in devMode when window.ai is unavailable.
+ */
+export function simulateAiParsing(text) {
+  const result = {};
+
+  // Extract occupation
+  const occuMatch = text.match(/(?:עבד כ|עבדה כ|מקצוע|עיסוק[:\s]+|היה |הייתה )([א-תA-Za-z\s]+?)(?:[,\.]|\s+ו|\s+שנפטר|\s+שנפטרה|$)/);
+  if (occuMatch) result.occupation = occuMatch[1].trim();
+
+  // Extract birth place & date
+  const birthMatch = text.match(/(?:נולד|נולדה)\s+(?:ב-?([0-9\.\/-]+|[א-ת\s\d]+?))?(?:\s+ב-?([א-תA-Za-z\s,]+?))?(?:[,\.]|\s+ו|\s+נפטר|$)/);
+  if (birthMatch) {
+    if (birthMatch[1] && /\d/.test(birthMatch[1])) result.birthDate = formatToGedcomDate(birthMatch[1]);
+    if (birthMatch[2] && !/\d{4}/.test(birthMatch[2])) result.birthPlace = birthMatch[2].trim();
+  }
+
+  // Extract death place & date
+  const deathMatch = text.match(/(?:נפטר|נפטרה)\s+(?:ב-?שנת\s+|בשנת\s+|ב-?|שנת\s+)?([0-9\.\/-]+|[א-ת\s\d]+?)(?:\s+ב-?([א-תA-Za-z\s,]+?))?(?:[,\.]|$)/);
+  if (deathMatch) {
+    if (deathMatch[1] && /\d/.test(deathMatch[1])) result.deathDate = formatToGedcomDate(deathMatch[1]);
+    if (deathMatch[2] && !/\d{4}/.test(deathMatch[2])) result.deathPlace = deathMatch[2].trim();
+  }
+
+  return JSON.stringify(result, null, 2);
 }
 
 /**
@@ -90,20 +118,24 @@ export async function analyzePersonTextWithAi(person, freeText, { devMode = fals
   let session = null;
 
   try {
-    if (window.ai?.languageModel?.create) {
-      session = await window.ai.languageModel.create({
+    const aiObj = window.ai || globalThis.ai;
+    if (aiObj?.languageModel?.create) {
+      session = await aiObj.languageModel.create({
         systemPrompt: 'You are an expert genealogy assistant that outputs only valid JSON conforming strictly to the requested schema.'
       });
       rawResponse = await session.prompt(prompt);
-    } else if (typeof window.ai?.createTextSession === 'function') {
-      session = await window.ai.createTextSession();
+    } else if (typeof aiObj?.createTextSession === 'function') {
+      session = await aiObj.createTextSession();
       rawResponse = await session.prompt(prompt);
-    } else if (typeof window.ai?.prompt === 'function') {
-      rawResponse = await window.ai.prompt(prompt);
+    } else if (typeof aiObj?.prompt === 'function') {
+      rawResponse = await aiObj.prompt(prompt);
     } else if (typeof window.model?.prompt === 'function') {
       rawResponse = await window.model.prompt(prompt);
+    } else if (devMode) {
+      // In devMode, if browser lacks built-in AI, provide simulated heuristic parsing
+      rawResponse = simulateAiParsing(freeText);
     } else {
-      throw new Error('ממשק window.ai אינו זמין בדפדפן זה.');
+      throw new Error('ממשק window.ai אינו זמין בדפדפן זה. בכרום ניתן להפעיל את Prompt API בדגלים chrome://flags, או להפעיל "מצב מפתח" בתיבת העריכה.');
     }
   } catch (err) {
     console.error('[AI Editor] Call to window.ai failed:', err);
