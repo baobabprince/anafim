@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft, ArrowRight, ArrowUpLeft, Baby, BookOpen, BriefcaseBusiness,
   CalendarDays, Check, ChevronDown, ChevronLeft, Clock3, FileText, Flower2,
-  GitBranch, Heart, House, Info, Layers3, MapPin, Network,
+  GitBranch, Heart, House, Info, Layers3, MapPin, Network, Pencil, RotateCcw,
   Printer, Quote, ShieldCheck, Sparkles, Sprout, UserRound, UsersRound,
 } from 'lucide-react';
+import { EditPersonAiModal } from './EditPersonAiModal.jsx';
 import { formatDate, formatDateCentral, getRelations, getYear, initials, lifeLabel, pedigreeLabel } from './gedcom.js';
 import { ATTRIBUTE_NAMES, branchPeople, eventTitle, personInformation, personRecord } from './person-info.js';
 import { t, getLang } from './i18n/index.js';
@@ -96,14 +97,43 @@ function focusIdentity(person, relations) {
   return { title, given, marriedSurname: showMarried ? marriedSurname : '', maiden };
 }
 
-function FocusCard({ person, info, relations, onOpenGroup, onSources }) {
+export function FocusCard({ person, info, relations, onOpenGroup, onSources, onEditAi, onUndoEdit, canUndo, aiSupported, devMode }) {
   const marriage = info.events.find(e => e.type === 'MARR');
   const secondEvent = person.death || marriage || info.residence;
   const secondLabel = person.death ? 'פטירה' : marriage ? t('fx.marriage') : t('fx.residence');
   const SecondIcon = person.death ? Flower2 : marriage ? Heart : House;
   const identity = focusIdentity(person, relations);
   return <article className="focus-card fx-focus" key={person.id}>
-    <div className="fx-focus-ribbon"><span className="fx-focus-ribbon-mark" aria-hidden="true"><span className="fx-selection-dot"/></span><button onClick={onSources} title={t('fx.recordDetails')} aria-label={t('fx.showSources')}><FileText size={12}/><bdi>{shortId(person.id)}</bdi></button></div>
+    <div className="fx-focus-ribbon">
+      <span className="fx-focus-ribbon-mark" aria-hidden="true"><span className="fx-selection-dot"/></span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {(aiSupported || devMode) && (
+          <button
+            onClick={onEditAi}
+            title="עריכת פרטים באמצעות AI"
+            aria-label="עריכת פרטים באמצעות AI"
+            className="fx-focus-edit-btn"
+            style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px', background: '#e8eedf', borderRadius: 4, color: '#385434', fontWeight: 500 }}
+          >
+            <Pencil size={11} />
+            <span>עריכה</span>
+          </button>
+        )}
+        {canUndo && (
+          <button
+            onClick={onUndoEdit}
+            title="בטל שינויים אחרונים"
+            aria-label="בטל שינויים אחרונים"
+            className="fx-focus-undo-btn"
+            style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px', background: '#faeade', borderRadius: 4, color: '#8d4d33', fontWeight: 500 }}
+          >
+            <RotateCcw size={11} />
+            <span>בטל שינויים</span>
+          </button>
+        )}
+        <button onClick={onSources} title={t('fx.recordDetails')} aria-label={t('fx.showSources')}><FileText size={12}/><bdi>{shortId(person.id)}</bdi></button>
+      </div>
+    </div>
     <div className="fx-focus-identity"><Portrait person={person} size="large"/><div><span className="fx-profile-type">{person.sex === 'F' ? t('fx.storyF') : person.sex === 'M' ? t('fx.storyM') : t('fx.storyPersonal')}</span><h2 dir="auto">{identity.marriedSurname ? <>{identity.given} <span className="fx-focus-married-surname">{identity.marriedSurname}</span></> : identity.title}</h2>{identity.maiden ? <span className="fx-focus-maiden">לבית {identity.maiden}</span> : null}<span className="fx-focus-years">{lifeLabel(person)}{info.ageAtDeath !== null && <span> · {info.ageAtDeath} שנים</span>}</span></div><Sprout className="fx-focus-sprout" size={30} strokeWidth={1.2}/></div>
     <div className="fx-focus-facts"><FocusFact icon={Sprout} label={t('fx.birth')} event={person.birth}/><FocusFact icon={SecondIcon} label={secondLabel} event={secondEvent}/></div>
     {person.occupation && <div className="fx-focus-occupation"><BriefcaseBusiness size={13}/><span dir="auto">{person.occupation}</span></div>}
@@ -160,7 +190,24 @@ function PersonInspector({ data, person, info, bundle, onSelect, tab, setTab }) 
   return <aside className="details-column fx-inspector" id="person-inspector"><section className="details-card fx-details-card"><header className="fx-inspector-heading"><span className="fx-eyebrow">{t('fx.behindName')}</span><div><h3>{t('fx.storyOf', { name: person.given || person.name })}</h3><span className="fx-info-mark"><Info size={15}/></span></div><p>{count(info.events.length)} אירועים<span/> {count(info.notes.length)} הערות<span/> {count(info.sourceCount)} מקורות</p></header><div className="fx-inspector-tabs" role="tablist" aria-label={t('fx.personInfo')}>{tabs.map(({id,label,icon:Icon},index)=><button key={id} role="tab" id={`person-tab-${id}`} aria-selected={tab === id} aria-controls={`person-panel-${id}`} tabIndex={tab === id ? 0 : -1} onClick={()=>setTab(id)} onKeyDown={event=>{let next=index;if(event.key === 'ArrowLeft')next=(index+1)%tabs.length;else if(event.key === 'ArrowRight')next=(index+tabs.length-1)%tabs.length;else if(event.key === 'Home')next=0;else if(event.key === 'End')next=tabs.length-1;else return;event.preventDefault();setTab(tabs[next].id);document.getElementById(`person-tab-${tabs[next].id}`)?.focus();}}><Icon size={14}/>{label}{id === 'sources' && !!info.citations.length && <span>{count(info.sourceCount)}</span>}</button>)}</div><div className="fx-inspector-panel" role="tabpanel" id="person-panel-overview" aria-labelledby="person-tab-overview" hidden={tab !== 'overview'}><OverviewPanel person={person} info={info}/></div><div className="fx-inspector-panel" role="tabpanel" id="person-panel-timeline" aria-labelledby="person-tab-timeline" hidden={tab !== 'timeline'}><TimelinePanel info={info}/></div><div className="fx-inspector-panel" role="tabpanel" id="person-panel-sources" aria-labelledby="person-tab-sources" hidden={tab !== 'sources'}><SourcesPanel person={person} info={info} bundle={bundle}/></div><div className="fx-inspector-footer"><ShieldCheck size={12}/><span>רק מידע מתוך הקובץ שלכם</span><bdi>{shortId(person.id)}</bdi></div></section><BranchCard data={data} person={person} onSelect={onSelect}/></aside>;
 }
 
-export default function FamilyExperience({ data, person, bundle, onSelect, parentFamily, setParentFamily, history, onHistory, onHelp }) {
+export default function FamilyExperience({
+  data,
+  person,
+  bundle,
+  onSelect,
+  parentFamily,
+  setParentFamily,
+  history,
+  onHistory,
+  onHelp,
+  onApplyUpdate,
+  onUndoEdit,
+  canUndo,
+  aiSupported,
+  devMode,
+  setDevMode
+}) {
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const relations = useMemo(()=>getRelations(data,person.id,parentFamily),[data,person.id,parentFamily]);
   const info = useMemo(()=>personInformation(data,person),[data,person]);
   const preferGrandparentsOpen = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 900px)').matches;
@@ -177,5 +224,17 @@ export default function FamilyExperience({ data, person, bundle, onSelect, paren
   const openGroup = type => {requestAnimationFrame(()=>document.getElementById(`relatives-${type}`)?.scrollIntoView({behavior:scrollBehavior(),block:'nearest'}));};
   const openInspector = nextTab => {setTab(nextTab);requestAnimationFrame(()=>document.getElementById('person-inspector')?.scrollIntoView({behavior:scrollBehavior(),block:window.innerWidth < 801 ? 'start' : 'nearest'}));};
   const openSources = () => openInspector('sources');
-  return <div className="family-experience"><div className="workspace-heading fx-workspace-heading" id="family-title"><div className="view-heading"><span className="fx-view-icon"><Network size={16}/></span><h2>{t('fx.familyView')}</h2><span className="fx-view-subtitle">אדם אחד. עולם של חיבורים.</span></div><div className="view-actions"><div className="history-controls"><button className="icon-button" disabled={history.cursor === 0} onClick={()=>onHistory(-1)} aria-label="חזרה לאדם הקודם" title="חזרה לאדם הקודם"><ArrowRight size={16}/></button><button className="icon-button" disabled={history.cursor === history.ids.length-1} onClick={()=>onHistory(1)} aria-label="מעבר לאדם הבא" title="מעבר לאדם הבא"><ArrowLeft size={16}/></button></div><span className="action-divider"/><button className="text-button print-button" onClick={()=>window.print()}><Printer size={15}/><span>הדפסה / PDF</span></button></div></div><div className="content-grid fx-content-grid"><section className="family-panel fx-family-panel" aria-label={`המעגל המשפחתי של ${person.name}`}><header className="fx-canvas-header"><div><h3>{t('fx.closeCircle')}</h3><p>כל החיבורים שמתחילים ב־<bdi>{person.given || person.name}</bdi></p></div><div className="fx-canvas-actions"><button className={`fx-grandparents-toggle ${showGrandparents ? 'selected' : ''}`} onClick={()=>setShowGrandparents(v=>!v)} aria-expanded={showGrandparents && relations.parents.length > 0} aria-controls="grandparents-generation" aria-label={showGrandparents && relations.parents.length > 0 ? t('fx.hideGrandparents') : t('fx.showGrandparents')} disabled={!relations.parents.length}><Layers3 size={14}/><span>סבים וסבתות</span><b>{count(grandparentCount)}</b><ChevronDown className="fx-grandparents-chevron" size={12}/></button><button className="icon-button fx-help" onClick={onHelp} aria-label="איך מנווטים באילן?"><Info size={17}/></button></div></header><div className={`fx-tree-stage ${showGrandparents ? 'fx-three-generations' : ''}`} style={{'--fx-parent-count':Math.max(1,relations.parents.length)}}><div className="fx-generation-label"><span/>{showGrandparents && relations.parents.length > 0 ? t('fx.grandparentsGen') : t('fx.parentsGen')}<span/></div>{relations.parentFamilies.length > 1 && <select className="fx-pedigree-select" aria-label={t('fx.chooseParentFamily')} value={relations.activeParentFamily || ''} onChange={event=>setParentFamily(event.target.value)}>{relations.parentFamilies.map((pf,i)=><option key={pf.id} value={pf.id}>{pedigreeLabel(pf.type)}{i ? ` ${i+1}` : ''}</option>)}</select>}{relations.parents.length > 0 && <GrandparentsGeneration branches={grandparents} open={showGrandparents} onSelect={onSelect} onFamilyChange={(parentId,familyId)=>setGrandparentFamilies(current=>({...current,[parentId]:familyId}))}/>}{relations.parents.length > 0 ? <><div className={`parents-row fx-parents-row ${relations.parents.length === 1 ? 'one-parent' : ''}`}>{relations.parents.map(p=><ParentCard key={p.id} person={p} onSelect={onSelect}/>)}</div><div className={`fx-parent-connector ${relations.parents.length === 1 ? 'one-parent' : ''}`}><svg viewBox="0 0 600 62" preserveAspectRatio="none" fill="none" aria-hidden="true">{relations.parents.length > 1 ? <path d="M150 0V16Q150 31 166 31H434Q450 31 450 16V0M300 31V62"/> : <path d="M300 0V62"/>}<circle cx="300" cy="31" r="4"/></svg>{parentMarriage?.date && <span className="fx-parent-marriage"><Heart size={10}/><bdi>{formatDate(parentMarriage.date)}</bdi></span>}</div></> : <div className="no-parents fx-no-parents"><Sprout size={26}/><strong>{t('fx.branchStarts')}</strong><span>הורים לא תועדו בקובץ. ממשיכים לגלות דרך המשפחה למטה.</span></div>}<FocusCard person={person} info={info} relations={relations} onOpenGroup={openGroup} onSources={openSources}/><div className="fx-focus-stem"><span/></div><button className="fx-canvas-caption" onClick={()=>openInspector('overview')} aria-controls="person-inspector"><BookOpen size={12}/>לפרטים מלאים, אירועים ומקורות<ChevronDown size={11}/></button></div><div className="fx-connected-relatives"><div className="fx-relatives-label"><UsersRound size={13}/><span>{t('fx.familyAround')}</span><span className="fx-relatives-rule"/><span className="fx-compact-hint">הזזה ימינה ושמאלה לכל הרשימה</span></div><RelativeSection title="בני ובנות זוג" icon={Heart} people={relations.partners} type="partners" onSelect={onSelect}/><RelativeSection title="ילדים וילדות" icon={Baby} people={relations.children} type="children" onSelect={onSelect}/><RelativeSection title="אחים ואחיות" icon={UsersRound} people={relations.siblings} type="siblings" onSelect={onSelect}/></div><footer className="fx-canvas-footer"><span><span className="fx-legend-current"/>האדם הנבחר</span><span><span className="fx-legend-parent"/>הורים במבט מלא</span><span><ShieldCheck size={11}/>פענוח רק במכשיר</span></footer></section><PersonInspector data={data} person={person} info={info} bundle={bundle} onSelect={onSelect} tab={tab} setTab={setTab}/></div></div>;
+  return <div className="family-experience"><div className="workspace-heading fx-workspace-heading" id="family-title"><div className="view-heading"><span className="fx-view-icon"><Network size={16}/></span><h2>{t('fx.familyView')}</h2><span className="fx-view-subtitle">אדם אחד. עולם של חיבורים.</span></div><div className="view-actions"><div className="history-controls"><button className="icon-button" disabled={history.cursor === 0} onClick={()=>onHistory(-1)} aria-label="חזרה לאדם הקודם" title="חזרה לאדם הקודם"><ArrowRight size={16}/></button><button className="icon-button" disabled={history.cursor === history.ids.length-1} onClick={()=>onHistory(1)} aria-label="מעבר לאדם הבא" title="מעבר לאדם הבא"><ArrowLeft size={16}/></button></div><span className="action-divider"/><button className="text-button print-button" onClick={()=>window.print()}><Printer size={15}/><span>הדפסה / PDF</span></button></div></div><div className="content-grid fx-content-grid"><section className="family-panel fx-family-panel" aria-label={`המעגל המשפחתי של ${person.name}`}><header className="fx-canvas-header"><div><h3>{t('fx.closeCircle')}</h3><p>כל החיבורים שמתחילים ב־<bdi>{person.given || person.name}</bdi></p></div><div className="fx-canvas-actions"><button className={`fx-grandparents-toggle ${showGrandparents ? 'selected' : ''}`} onClick={()=>setShowGrandparents(v=>!v)} aria-expanded={showGrandparents && relations.parents.length > 0} aria-controls="grandparents-generation" aria-label={showGrandparents && relations.parents.length > 0 ? t('fx.hideGrandparents') : t('fx.showGrandparents')} disabled={!relations.parents.length}><Layers3 size={14}/><span>סבים וסבתות</span><b>{count(grandparentCount)}</b><ChevronDown className="fx-grandparents-chevron" size={12}/></button><button className="icon-button fx-help" onClick={onHelp} aria-label="איך מנווטים באילן?"><Info size={17}/></button></div></header><div className={`fx-tree-stage ${showGrandparents ? 'fx-three-generations' : ''}`} style={{'--fx-parent-count':Math.max(1,relations.parents.length)}}><div className="fx-generation-label"><span/>{showGrandparents && relations.parents.length > 0 ? t('fx.grandparentsGen') : t('fx.parentsGen')}<span/></div>{relations.parentFamilies.length > 1 && <select className="fx-pedigree-select" aria-label={t('fx.chooseParentFamily')} value={relations.activeParentFamily || ''} onChange={event=>setParentFamily(event.target.value)}>{relations.parentFamilies.map((pf,i)=><option key={pf.id} value={pf.id}>{pedigreeLabel(pf.type)}{i ? ` ${i+1}` : ''}</option>)}</select>}{relations.parents.length > 0 && <GrandparentsGeneration branches={grandparents} open={showGrandparents} onSelect={onSelect} onFamilyChange={(parentId,familyId)=>setGrandparentFamilies(current=>({...current,[parentId]:familyId}))}/>}{relations.parents.length > 0 ? <><div className={`parents-row fx-parents-row ${relations.parents.length === 1 ? 'one-parent' : ''}`}>{relations.parents.map(p=><ParentCard key={p.id} person={p} onSelect={onSelect}/>)}</div><div className={`fx-parent-connector ${relations.parents.length === 1 ? 'one-parent' : ''}`}><svg viewBox="0 0 600 62" preserveAspectRatio="none" fill="none" aria-hidden="true">{relations.parents.length > 1 ? <path d="M150 0V16Q150 31 166 31H434Q450 31 450 16V0M300 31V62"/> : <path d="M300 0V62"/>}<circle cx="300" cy="31" r="4"/></svg>{parentMarriage?.date && <span className="fx-parent-marriage"><Heart size={10}/><bdi>{formatDate(parentMarriage.date)}</bdi></span>}</div></> : <div className="no-parents fx-no-parents"><Sprout size={26}/><strong>{t('fx.branchStarts')}</strong><span>הורים לא תועדו בקובץ. ממשיכים לגלות דרך המשפחה למטה.</span></div>}<FocusCard person={person} info={info} relations={relations} onOpenGroup={openGroup} onSources={openSources} onEditAi={()=>setEditModalOpen(true)} onUndoEdit={onUndoEdit} canUndo={canUndo} aiSupported={aiSupported} devMode={devMode}/><div className="fx-focus-stem"><span/></div><button className="fx-canvas-caption" onClick={()=>openInspector('overview')} aria-controls="person-inspector"><BookOpen size={12}/>לפרטים מלאים, אירועים ומקורות<ChevronDown size={11}/></button></div><div className="fx-connected-relatives"><div className="fx-relatives-label"><UsersRound size={13}/><span>{t('fx.familyAround')}</span><span className="fx-relatives-rule"/><span className="fx-compact-hint">הזזה ימינה ושמאלה לכל הרשימה</span></div><RelativeSection title="בני ובנות זוג" icon={Heart} people={relations.partners} type="partners" onSelect={onSelect}/><RelativeSection title="ילדים וילדות" icon={Baby} people={relations.children} type="children" onSelect={onSelect}/><RelativeSection title="אחים ואחיות" icon={UsersRound} people={relations.siblings} type="siblings" onSelect={onSelect}/></div><footer className="fx-canvas-footer"><span><span className="fx-legend-current"/>האדם הנבחר</span><span><span className="fx-legend-parent"/>הורים במבט מלא</span><span><ShieldCheck size={11}/>פענוח רק במכשיר</span></footer></section><PersonInspector data={data} person={person} info={info} bundle={bundle} onSelect={onSelect} tab={tab} setTab={setTab}/></div>
+  {editModalOpen && (
+    <EditPersonAiModal
+      isOpen={editModalOpen}
+      onClose={()=>setEditModalOpen(false)}
+      person={person}
+      bundle={bundle}
+      onApplyUpdate={onApplyUpdate}
+      devMode={devMode}
+      setDevMode={setDevMode}
+    />
+  )}
+  </div>;
 }
