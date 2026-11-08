@@ -1,0 +1,21 @@
+name: Patch deploy model download
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patch
+        run: python3 scripts/patch_deploy_with_model_download.py
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/deploy-pages.yml
+          git status
+          git commit -m "ci: download SmolLM2 ONNX into public/models during Pages deploy" || exit 0
+          git push
