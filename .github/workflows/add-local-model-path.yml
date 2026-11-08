@@ -1,0 +1,20 @@
+name: Add local model path support
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patch
+        run: python3 scripts/add_local_model_path_support.py
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/local-ai-provider.js family-viewer/public/models
+          git status
+          git commit -m "feat(ai): prefer self-hosted models under public/models/" || exit 0
+          git push
