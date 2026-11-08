@@ -1,0 +1,25 @@
+name: Always show AI edit button
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patch
+        run: python3 scripts/always_show_ai_edit_button.py
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/FamilyExperience.jsx
+          git status
+          git commit -m "fix(ui): always show the AI edit button for a person
+
+The edit button was previously hidden unless window.ai was available or
+devMode was on. On most browsers (especially mobile) the button never
+appeared. It is now always visible; if the AI is unavailable the modal
+still shows a clear error message." || exit 0
+          git push
