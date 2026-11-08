@@ -13,7 +13,6 @@ jobs:
       - name: Install deps
         working-directory: family-viewer
         run: |
-          npm ci
           npm install @huggingface/transformers@^3.5.0 --save
           node -e "import('./src/local-ai-provider.js').then(m => console.log('ok', Object.keys(m))).catch(e => { console.error(e); process.exit(1); })"
       - name: Commit and push
