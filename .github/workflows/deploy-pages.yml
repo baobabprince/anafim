@@ -34,61 +34,6 @@ jobs:
         working-directory: family-viewer
         run: npm ci
 
-      - name: Download self-hosted ONNX model (single quant only)
-        env:
-          HF_HUB_ENABLE_HF_TRANSFER: "1"
-        run: |
-          set -euo pipefail
-          python3 -m pip install -q "huggingface_hub[hf_transfer]"
-          DEST="family-viewer/public/models/smollm2-360m"
-          mkdir -p "$DEST/onnx"
-          python3 << 'PY'
-          from huggingface_hub import hf_hub_download
-          from pathlib import Path
-          import shutil
-
-          dest = Path("family-viewer/public/models/smollm2-360m")
-          dest.mkdir(parents=True, exist_ok=True)
-          (dest / "onnx").mkdir(exist_ok=True)
-
-          # Prefer 135M to keep Pages push under HTTP timeouts; folder name stays smollm2-360m for app compatibility
-          repo = "HuggingFaceTB/SmolLM2-135M-Instruct"
-          text_files = [
-              "config.json",
-              "generation_config.json",
-              "tokenizer.json",
-              "tokenizer_config.json",
-              "special_tokens_map.json",
-              "vocab.json",
-              "merges.txt",
-          ]
-          for name in text_files:
-              try:
-                  path = hf_hub_download(repo_id=repo, filename=name)
-                  shutil.copy2(path, dest / name)
-                  print("ok", name)
-              except Exception as e:
-                  print("skip", name, e)
-
-          # Only the smallest practical quant for WASM/WebGPU
-          onnx_name = "onnx/model_q4f16.onnx"
-          try:
-              path = hf_hub_download(repo_id=repo, filename=onnx_name)
-          except Exception:
-              onnx_name = "onnx/model_q4.onnx"
-              path = hf_hub_download(repo_id=repo, filename=onnx_name)
-          out = dest / "onnx" / Path(onnx_name).name
-          shutil.copy2(path, out)
-          print("onnx", out, out.stat().st_size // (1024 * 1024), "MB")
-
-          if not (dest / "config.json").exists():
-              raise SystemExit("config.json missing")
-          if not any((dest / "onnx").glob("*.onnx")):
-              raise SystemExit("no onnx weights")
-          PY
-          du -sh "$DEST" || true
-          find "$DEST" -type f -printf '%s %p\n' | sort -n
-
       - name: Build with public Supabase config
         working-directory: family-viewer
         env:
@@ -148,41 +93,9 @@ jobs:
             git push origin HEAD:master || (git pull --rebase origin master && git push origin HEAD:master)
           fi
 
-      - name: Deploy to gh-pages (robust large-file push)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          PUBLISH_DIR=family-viewer/dist
-          WORK=$(mktemp -d)
-          git config --global http.postBuffer 524288000
-          git config --global http.version HTTP/1.1
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git clone --depth 1 --branch gh-pages "https://x-access-token:${GITHUB_TOKEN}@github.com/baobabprince/anafim.git" "$WORK" \
-            || (git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/baobabprince/anafim.git" "$WORK" && cd "$WORK" && git checkout --orphan gh-pages && git rm -rf . || true)
-
-          cd "$WORK"
-          # Clear previous published files but keep .git
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-          cp -a "$GITHUB_WORKSPACE/$PUBLISH_DIR"/. .
-          touch .nojekyll
-
-          git add -A
-          if git diff --staged --quiet; then
-            echo "No changes to publish"
-            exit 0
-          fi
-          git commit -m "deploy: ${GITHUB_SHA}"
-
-          # Retry push a few times (large ONNX can 408)
-          for i in 1 2 3; do
-            if git push --force origin HEAD:gh-pages; then
-              echo "gh-pages push ok (attempt $i)"
-              exit 0
-            fi
-            echo "push failed attempt $i — retrying..."
-            sleep 10
-          done
-          exit 1
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./family-viewer/dist
+          force_orphan: true
