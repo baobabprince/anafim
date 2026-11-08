@@ -1,12 +1,17 @@
 /**
  * Local browser AI via Hugging Face Transformers.js (ONNX + WebGPU/WASM).
- * Used as fallback when window.ai / Prompt API is unavailable.
+ * Prefer self-hosted weights under public/models/ when present;
+ * otherwise fall back to Hugging Face Hub.
  */
 
-// Smaller instruct model – fewer/lighter files than Qwen2.5-0.5B for first download
-const MODEL_ID = 'onnx-community/SmolLM2-360M-Instruct-ONNX';
-// Fallback if primary model id is unavailable
-const FALLBACK_MODEL_ID = 'HuggingFaceTB/SmolLM2-360M-Instruct';
+/** Folder name under public/models/ (and pipeline model id for local load). */
+const LOCAL_MODEL_NAME = 'smollm2-360m';
+
+/** Remote Hub ids if self-hosted copy is missing. */
+const REMOTE_MODEL_IDS = [
+  'onnx-community/SmolLM2-360M-Instruct-ONNX',
+  'HuggingFaceTB/SmolLM2-360M-Instruct',
+];
 
 let generatorPromise = null;
 let lastProgress = { status: 'idle', progress: 0 };
@@ -20,6 +25,23 @@ export async function isLocalAiAvailable() {
   return true;
 }
 
+function modelsBaseUrl() {
+  // Vite base is /anafim/ in production; ends with /
+  const base = (typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL) || '/';
+  return `${base}models/`;
+}
+
+/** True if self-hosted model files are published under public/models/<name>/. */
+async function hasSelfHostedModel() {
+  try {
+    const url = `${modelsBaseUrl()}${LOCAL_MODEL_NAME}/config.json`;
+    const res = await fetch(url, { method: 'HEAD', cache: 'no-cache' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function canUseWebGpu() {
   try {
     if (typeof navigator === 'undefined' || !navigator.gpu) return false;
@@ -30,22 +52,26 @@ async function canUseWebGpu() {
   }
 }
 
-async function configureEnv(env) {
-  // Always allow downloading models from the Hub in the browser
-  env.allowRemoteModels = true;
-  env.allowLocalModels = false;
-  // Browser cache (IndexedDB) speeds up second load
+async function configureEnv(env, { useLocal }) {
   env.useBrowserCache = true;
 
-  // Helpful defaults for WASM on some hosts (GitHub Pages / mobile)
+  if (useLocal) {
+    env.allowLocalModels = true;
+    env.allowRemoteModels = false;
+    env.localModelPath = modelsBaseUrl();
+    console.log('[AI Editor] Using self-hosted models from', env.localModelPath);
+  } else {
+    env.allowLocalModels = false;
+    env.allowRemoteModels = true;
+    console.log('[AI Editor] Self-hosted model not found – using Hugging Face Hub');
+  }
+
   try {
     if (env.backends?.onnx?.wasm) {
-      // Single thread is more reliable on mobile / Safari
       env.backends.onnx.wasm.numThreads = 1;
-      // proxy worker can fail on some hosts; leave default unless needed
     }
   } catch {
-    // ignore env shape differences across versions
+    // ignore
   }
 }
 
@@ -85,8 +111,9 @@ function friendlyFetchError(err) {
   const msg = String(err?.message || err || '');
   if (/Failed to fetch|NetworkError|Load failed|network/i.test(msg)) {
     return (
-      'נכשל בהורדת המודל מ-Hugging Face (Failed to fetch).\n' +
-      'בדוק חיבור לאינטרנט, חוסם פרסומות/VPN, או נסה בדפדפן אחר.\n' +
+      'נכשל בהורדת המודל (Failed to fetch).\n' +
+      'אם שמת עותק תחת public/models/smollm2-360m — ודא ש-config.json זמין אחרי build.\n' +
+      'אחרת: בדוק חיבור / חוסם פרסומות / VPN מול Hugging Face.\n' +
       'טיפ: ב-Chrome עם window.ai אין צורך במודל מקומי.\n' +
       `פרטים: ${msg}`
     );
@@ -99,18 +126,20 @@ async function getGenerator(onProgress) {
 
   generatorPromise = (async () => {
     const { pipeline, env } = await import('@huggingface/transformers');
-    await configureEnv(env);
+
+    const useLocal = await hasSelfHostedModel();
+    await configureEnv(env, { useLocal });
 
     const preferGpu = await canUseWebGpu();
     const devices = preferGpu ? ['webgpu', 'wasm'] : ['wasm'];
-    const models = [MODEL_ID, FALLBACK_MODEL_ID];
+    const models = useLocal ? [LOCAL_MODEL_NAME] : REMOTE_MODEL_IDS;
 
     let lastError = null;
 
     for (const modelId of models) {
       for (const device of devices) {
         try {
-          console.log(`[AI Editor] Loading ${modelId} on device=${device}`);
+          console.log(`[AI Editor] Loading ${modelId} on device=${device} (local=${useLocal})`);
           return await loadPipeline(pipeline, modelId, device, onProgress);
         } catch (err) {
           lastError = err;
@@ -119,19 +148,21 @@ async function getGenerator(onProgress) {
       }
     }
 
-    // Last resort: no device/dtype
-    try {
-      console.log('[AI Editor] Retry default device with', MODEL_ID);
-      lastProgress = { status: 'loading', progress: 0, device: 'auto' };
-      if (onProgress) onProgress(lastProgress);
-      const generator = await pipeline('text-generation', MODEL_ID, {
-        progress_callback: progressCb('auto', onProgress),
-      });
-      lastProgress = { status: 'ready', progress: 100, device: 'auto' };
-      if (onProgress) onProgress(lastProgress);
-      return generator;
-    } catch (err) {
-      lastError = err;
+    // Last resort for remote only
+    if (!useLocal) {
+      try {
+        console.log('[AI Editor] Retry default device with', REMOTE_MODEL_IDS[0]);
+        lastProgress = { status: 'loading', progress: 0, device: 'auto' };
+        if (onProgress) onProgress(lastProgress);
+        const generator = await pipeline('text-generation', REMOTE_MODEL_IDS[0], {
+          progress_callback: progressCb('auto', onProgress),
+        });
+        lastProgress = { status: 'ready', progress: 100, device: 'auto' };
+        if (onProgress) onProgress(lastProgress);
+        return generator;
+      } catch (err) {
+        lastError = err;
+      }
     }
 
     throw new Error(friendlyFetchError(lastError) || 'לא ניתן לטעון מודל מקומי.');
