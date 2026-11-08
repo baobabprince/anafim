@@ -1,0 +1,98 @@
+name: Publish AI model (Git LFS)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-ai-model-lfs
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Git LFS
+        run: |
+          git lfs install --local
+          git lfs track "*.onnx"
+          git lfs track "*.onnx_data"
+          cat .gitattributes
+
+      - name: Download SmolLM2-135M instruct (q4f16 only)
+        env:
+          HF_HUB_ENABLE_HF_TRANSFER: "1"
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q "huggingface_hub[hf_transfer]"
+          DEST="models/smollm2-360m"
+          mkdir -p "$DEST/onnx"
+          python3 << 'PY'
+          from huggingface_hub import hf_hub_download
+          from pathlib import Path
+          import shutil
+
+          dest = Path("models/smollm2-360m")
+          dest.mkdir(parents=True, exist_ok=True)
+          (dest / "onnx").mkdir(exist_ok=True)
+
+          repo = "HuggingFaceTB/SmolLM2-135M-Instruct"
+          text_files = [
+              "config.json",
+              "generation_config.json",
+              "tokenizer.json",
+              "tokenizer_config.json",
+              "special_tokens_map.json",
+              "vocab.json",
+              "merges.txt",
+          ]
+          for name in text_files:
+              try:
+                  path = hf_hub_download(repo_id=repo, filename=name)
+                  shutil.copy2(path, dest / name)
+                  print("ok", name)
+              except Exception as e:
+                  print("skip", name, e)
+
+          for onnx_name in ("onnx/model_q4f16.onnx", "onnx/model_q4.onnx"):
+              try:
+                  path = hf_hub_download(repo_id=repo, filename=onnx_name)
+                  out = dest / "onnx" / Path(onnx_name).name
+                  shutil.copy2(path, out)
+                  print("onnx", out, out.stat().st_size // (1024 * 1024), "MB")
+                  break
+              except Exception as e:
+                  print("onnx miss", onnx_name, e)
+          else:
+              raise SystemExit("no onnx weight downloaded")
+
+          if not (dest / "config.json").exists():
+              raise SystemExit("config.json missing")
+          PY
+          du -sh models/smollm2-360m
+          git lfs status || true
+          find models/smollm2-360m -type f -printf '%s\t%p\n' | sort -n
+
+      - name: Commit and push with LFS
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .gitattributes models/smollm2-360m
+          git status
+          git lfs ls-files || true
+          if git diff --staged --quiet; then
+            echo "No model changes to commit"
+            exit 0
+          fi
+          git commit -m "feat(ai): add SmolLM2-135M q4f16 weights via Git LFS"
+          # Push LFS objects first, then refs
+          git lfs push origin master
+          git push origin HEAD:master
