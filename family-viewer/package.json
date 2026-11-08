@@ -12,6 +12,7 @@
     "standalone": "npm run build && node scripts/standalone.mjs"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
     "@supabase/supabase-js": "^2.109.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",

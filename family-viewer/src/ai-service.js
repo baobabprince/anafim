@@ -3,10 +3,13 @@
  */
 
 import { validatePersonUpdates, formatToGedcomDate } from './gedcom-ai-editor.js';
+import { isLocalAiAvailable, promptLocalAi, getLocalAiProgress } from './local-ai-provider.js';
 
 /**
  * Checks if window.ai or equivalent browser AI interface is available.
  */
+export { getLocalAiProgress };
+
 export async function isWindowAiAvailable() {
   if (typeof window === 'undefined') return false;
 
@@ -103,8 +106,11 @@ export async function analyzePersonTextWithAi(person, freeText, { devMode = fals
       rawResponse = await window.ai.prompt(prompt);
     } else if (typeof window.model?.prompt === 'function') {
       rawResponse = await window.model.prompt(prompt);
+    } else if (await isLocalAiAvailable()) {
+      console.log('[AI Editor] window.ai unavailable – using local Hugging Face model');
+      rawResponse = await promptLocalAi(prompt);
     } else {
-      throw new Error('ממשק window.ai אינו זמין בדפדפן זה.');
+      throw new Error('ממשק window.ai אינו זמין בדפדפן זה, וגם מודל מקומי לא זמין.');
     }
   } catch (err) {
     console.error('[AI Editor] Call to window.ai failed:', err);
