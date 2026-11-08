@@ -94,12 +94,9 @@ async function loadPipeline(pipeline, modelId, device, onProgress) {
   const opts = {
     device,
     progress_callback: progressCb(device, onProgress),
+    // CI ships model_q4f16.onnx only
+    dtype: 'q4f16',
   };
-  if (device === 'webgpu') {
-    opts.dtype = 'q4';
-  } else {
-    opts.dtype = 'q8';
-  }
 
   const generator = await pipeline('text-generation', modelId, opts);
   lastProgress = { status: 'ready', progress: 100, device, model: modelId };
