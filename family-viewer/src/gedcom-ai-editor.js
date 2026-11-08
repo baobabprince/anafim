@@ -133,7 +133,8 @@ export function validatePersonUpdates(updates, currentPerson = {}) {
     'notes',
     'residencePlace',
     'residenceDate',
-    'education'
+    'education',
+    'source'
   ]);
 
   const unknownKeys = Object.keys(updates).filter(k => !allowedKeys.has(k));
@@ -148,7 +149,7 @@ export function validatePersonUpdates(updates, currentPerson = {}) {
   const stringFields = [
     'givenName', 'surname', 'nickname',
     'birthPlace', 'deathPlace', 'deathCause',
-    'occupation', 'residencePlace', 'education'
+    'occupation', 'residencePlace', 'education', 'source'
   ];
 
   for (const field of stringFields) {
@@ -455,6 +456,17 @@ export function updatePersonRecord(rawBlock, updates, personId) {
       if (!exists) {
         subNodes.push({ tag: 'NOTE', val: noteText, raw: `1 NOTE ${noteText}`, children: [] });
       }
+    }
+  }
+
+  // Update source as a dedicated NOTE (מקור)
+  if (updates.source !== undefined && updates.source) {
+    const sourceNote = updates.source.startsWith('מקור:') || updates.source.startsWith('מקור :')
+      ? updates.source
+      : `מקור: ${updates.source}`;
+    const exists = subNodes.some(n => n.tag === 'NOTE' && n.val === sourceNote);
+    if (!exists) {
+      subNodes.push({ tag: 'NOTE', val: sourceNote, raw: `1 NOTE ${sourceNote}`, children: [] });
     }
   }
 

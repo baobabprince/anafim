@@ -70,6 +70,7 @@ CRITICAL RULES:
    - "residencePlace": string
    - "residenceDate": string
    - "notes": array of strings (e.g. ["עלה לארץ ב-1948"])
+   - "source": string (מקור המידע, e.g. "ספר זיכרון משפחתי" or "עדות של דוד משה")
 
 Current person data in tree:
 ${JSON.stringify(currentInfo, null, 2)}
