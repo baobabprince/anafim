@@ -121,6 +121,7 @@ export function EditPersonAiModal({
             />
             <span style={{ fontSize: 11, color: '#687b5a', display: 'block', marginTop: 4 }}>
               ה-AI ינתח את הטקסט, יוודא תקינות מבנה GEDCOM ויעדכן רק את הרשומה של אדם זה.
+              במובייל עדיף Chrome במחשב עם AI מובנה — מודל מקומי דורש הורדה של ~120MB.
             </span>
           </div>
 
@@ -138,9 +139,9 @@ export function EditPersonAiModal({
           </div>
 
           {error && (
-            <div className="error-message" role="alert" style={{ marginBottom: 14 }}>
-              <AlertTriangle size={18} />
-              <span>{error}</span>
+            <div className="error-message" role="alert" style={{ marginBottom: 14, alignItems: 'flex-start' }}>
+              <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span style={{ whiteSpace: 'pre-line', lineHeight: 1.5 }}>{error}</span>
             </div>
           )}
 
