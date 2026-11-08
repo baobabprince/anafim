@@ -7,6 +7,7 @@ import { DEMO_TEXT, DEMO_ROOT } from './demo.js';
 import { importGedcomFile, MAX_FILE_BYTES } from './import-gedcom.js';
 import { saveSharedExport, loadSharedExport, hasSharedExport, formatSharedSummary } from './baobab-shared-storage.js';
 import { parseGedcom, parseGedcomAsync, getRelations, formatDate, lifeLabel, initials, normalize, getYear, pedigreeLabel } from './gedcom.js';
+import { isWindowAiAvailable } from './ai-service.js';
 import { useI18n } from './i18n/I18nContext.jsx';
 import LangToggle from './i18n/LangToggle.jsx';
 
@@ -56,7 +57,7 @@ function loadFromBaobabShared(onImport) {
 }
 
 const OLD_CACHE_KEY = 'anafim-gedcom-v1';
-const APP_VERSION = '2.0.2';
+const APP_VERSION = '2.0.1';
 
 function getUrlDeepLink() {
   try {
@@ -809,7 +810,14 @@ export default function App() {
   const [bundle,setBundle] = useState(initialBundle);
   const [history,setHistory] = useState(() => ({ ids:[bundle.isDemo ? DEMO_ROOT : bundle.data.order[0]], cursor:0 }));
   const [view,setView] = useState('family'), [query,setQuery] = useState(''), [modal,setModal] = useState(() => getSavedFilesList().length === 0 ? 'upload' : null), [mobileMenu,setMobileMenu] = useState(false), [parentFamily,setParentFamily] = useState(''), [toast,setToast] = useState(''), [installPrompt,setInstallPrompt] = useState(null);
+  const [undoStack, setUndoStack] = useState([]);
+  const [aiSupported, setAiSupported] = useState(false);
+  const [devMode, setDevMode] = useState(false);
   const menuRef = useRef(null);
+
+  useEffect(() => {
+    isWindowAiAvailable().then(avail => setAiSupported(avail));
+  }, []);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = e => {
@@ -845,6 +853,54 @@ export default function App() {
     const name = bundle.data.people[pid]?.name;
     if (name) setToast(`מציגים את ${name}`);
   }, [bundle]);
+
+  const handleApplyAiUpdate = useCallback(({ updatedRaw, updates, diff }) => {
+    try {
+      const nextData = parseGedcom(updatedRaw);
+      // Save current state to undo stack
+      setUndoStack(prev => [...prev, {
+        raw: bundle.raw,
+        data: bundle.data
+      }]);
+
+      const nextBundle = {
+        ...bundle,
+        raw: updatedRaw,
+        data: nextData
+      };
+
+      if (!bundle.isDemo && bundle.remembered) {
+        saveFileToLocalStorage(nextBundle);
+        pushToBaobabShared(nextBundle);
+      }
+
+      setBundle(nextBundle);
+      setToast('הפרטים עודכנו בהצלחה ב-GEDCOM.');
+    } catch (err) {
+      console.error('Failed to apply GEDCOM update:', err);
+      setToast('שגיאה בעדכון ה-GEDCOM: ' + err.message);
+    }
+  }, [bundle]);
+
+  const handleUndoEdit = useCallback(() => {
+    if (!undoStack.length) return;
+    const previous = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, -1));
+
+    const restoredBundle = {
+      ...bundle,
+      raw: previous.raw,
+      data: previous.data
+    };
+
+    if (!bundle.isDemo && bundle.remembered) {
+      saveFileToLocalStorage(restoredBundle);
+      pushToBaobabShared(restoredBundle);
+    }
+
+    setBundle(restoredBundle);
+    setToast('השינויים בוטלו בהצלחה.');
+  }, [bundle, undoStack]);
 
   const person = bundle.data.people[history.ids[history.cursor]] || bundle.data.people[bundle.data.order[0]];
   const demoSurname = bundle.isDemo ? 'משפחת לוין' : bundle.filename.replace(/\.(ged|gedcom|txt)$/i,'').replace(/[_-]/g,' ');
@@ -1053,7 +1109,23 @@ export default function App() {
             </div>
           )}
           {view === 'family' ? (
-            <FamilyView data={bundle.data} person={person} bundle={bundle} onSelect={selectPerson} parentFamily={parentFamily} setParentFamily={setParentFamily} history={history} onHistory={goHistory} onHelp={() => setModal('help')}/>
+            <FamilyView
+              data={bundle.data}
+              person={person}
+              bundle={bundle}
+              onSelect={selectPerson}
+              parentFamily={parentFamily}
+              setParentFamily={setParentFamily}
+              history={history}
+              onHistory={goHistory}
+              onHelp={() => setModal('help')}
+              onApplyUpdate={handleApplyAiUpdate}
+              onUndoEdit={handleUndoEdit}
+              canUndo={undoStack.length > 0}
+              aiSupported={aiSupported}
+              devMode={devMode}
+              setDevMode={setDevMode}
+            />
           ) : view === 'people' ? (
             <PeopleView data={bundle.data} query={query} setQuery={setQuery} onSelect={selectPerson}/>
           ) : (

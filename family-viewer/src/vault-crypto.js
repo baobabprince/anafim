@@ -56,7 +56,8 @@ export async function secretFromPassword(password,pbkdfSalt,iterations=PBKDF2_IT
   return new Uint8Array(await subtle().deriveBits({name:'PBKDF2',salt:pbkdfSalt,iterations,hash:'SHA-256'},material,256));
 }
 export async function createVault(ownerId,opts){
-  const password=opts?.password;const passkey=opts?.passkey;
+  let password=opts?.password;let passkey=opts?.passkey;
+  if(opts?.secret && opts?.credentialId) passkey = opts;
   if(!password&&!passkey)fail('יש לבחור סיסמת כספת או Passkey.');
   const vaultId=crypto.randomUUID();identity(ownerId,vaultId);
   const key=await subtle().generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);
