@@ -1,22 +1,19 @@
 /**
  * Local browser AI via Hugging Face Transformers.js (ONNX + WebGPU/WASM).
- * Prefer self-hosted weights under public/models/ when present.
- * Remote Hub is attempted only if explicitly useful; many networks block it.
  *
- * Note: GitHub Pages cannot host the ONNX weights (file >100MB). Until the
- * model is hosted elsewhere (Release/CDN), this path will usually fail and
- * callers should rely on window.ai when available.
+ * Weights live in the repo under models/smollm2-360m/ with *.onnx in Git LFS.
+ * GitHub Pages cannot serve LFS blobs, so we load from media.githubusercontent.com.
  */
 
 const LOCAL_MODEL_NAME = 'smollm2-360m';
 
-const REMOTE_MODEL_IDS = [
-  'onnx-community/SmolLM2-360M-Instruct-ONNX',
-  'HuggingFaceTB/SmolLM2-360M-Instruct',
-];
+/** Public LFS media base (public repo). */
+const LFS_MEDIA_BASE =
+  'https://media.githubusercontent.com/media/baobabprince/anafim/master/models/';
 
 let generatorPromise = null;
 let lastProgress = { status: 'idle', progress: 0 };
+let resolvedModelBase = null;
 
 export function getLocalAiProgress() {
   return { ...lastProgress };
@@ -24,27 +21,61 @@ export function getLocalAiProgress() {
 
 export async function isLocalAiAvailable() {
   if (typeof window === 'undefined') return false;
-  // Soft availability: we can try; actual load may still fail without weights.
   return true;
 }
 
-function modelsBaseUrl() {
+function pagesModelsBaseUrl() {
   const base = (typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL) || '/';
   return `${base}models/`;
 }
 
-async function hasSelfHostedModel() {
+async function urlOk(url) {
   try {
-    const url = `${modelsBaseUrl()}${LOCAL_MODEL_NAME}/config.json`;
-    const res = await fetch(url, { method: 'HEAD', cache: 'no-cache' });
-    if (!res.ok) return false;
-    // Also require an ONNX weight; config alone is not enough
-    const onnxUrl = `${modelsBaseUrl()}${LOCAL_MODEL_NAME}/onnx/model_q4f16.onnx`;
-    const onnx = await fetch(onnxUrl, { method: 'HEAD', cache: 'no-cache' });
-    return onnx.ok;
+    const res = await fetch(url, { method: 'HEAD', cache: 'no-cache', mode: 'cors' });
+    if (res.ok) return true;
+    // Some CDNs reject HEAD — try a tiny ranged GET
+    const get = await fetch(url, {
+      method: 'GET',
+      headers: { Range: 'bytes=0-0' },
+      cache: 'no-cache',
+      mode: 'cors',
+    });
+    return get.ok || get.status === 206;
   } catch {
     return false;
   }
+}
+
+/**
+ * Prefer same-origin Pages copy if complete; otherwise Git LFS media URL.
+ * @returns {Promise<string|null>} base URL ending with models/
+ */
+async function resolveModelBase() {
+  if (resolvedModelBase) return resolvedModelBase;
+
+  const candidates = [
+    pagesModelsBaseUrl(),
+    LFS_MEDIA_BASE,
+  ];
+
+  for (const base of candidates) {
+    const configUrl = `${base}${LOCAL_MODEL_NAME}/config.json`;
+    const onnxUrl = `${base}${LOCAL_MODEL_NAME}/onnx/model_q4f16.onnx`;
+    const configOk = await urlOk(configUrl);
+    if (!configOk) {
+      console.log('[AI Editor] no config at', configUrl);
+      continue;
+    }
+    const onnxOk = await urlOk(onnxUrl);
+    if (!onnxOk) {
+      console.log('[AI Editor] config ok but no onnx at', onnxUrl);
+      continue;
+    }
+    resolvedModelBase = base;
+    console.log('[AI Editor] model base resolved:', base);
+    return base;
+  }
+  return null;
 }
 
 async function canUseWebGpu() {
@@ -54,27 +85,6 @@ async function canUseWebGpu() {
     return Boolean(adapter);
   } catch {
     return false;
-  }
-}
-
-async function configureEnv(env, { useLocal }) {
-  env.useBrowserCache = true;
-  if (useLocal) {
-    env.allowLocalModels = true;
-    env.allowRemoteModels = false;
-    env.localModelPath = modelsBaseUrl();
-    console.log('[AI Editor] Using self-hosted models from', env.localModelPath);
-  } else {
-    env.allowLocalModels = false;
-    env.allowRemoteModels = true;
-    console.log('[AI Editor] No self-hosted ONNX on this origin');
-  }
-  try {
-    if (env.backends?.onnx?.wasm) {
-      env.backends.onnx.wasm.numThreads = 1;
-    }
-  } catch {
-    // ignore
   }
 }
 
@@ -108,10 +118,10 @@ async function loadPipeline(pipeline, modelId, device, onProgress) {
 function friendlyFetchError(err) {
   const msg = String(err?.message || err || '');
   return (
-    'עריכת AI מקומית אינה זמינה כרגע.\n\n' +
-    '• ב-Chrome (עם window.ai / Gemini Nano) — העריכה אמורה לעבוד.\n' +
-    '• מודל ONNX מקומי לא ניתן לארח ב-GitHub Pages (מגבלת 100MB; הקובץ ~112MB).\n' +
-    '• הורדה מ-Hugging Face נחסמה או נכשלה ברשת שלך.\n\n' +
+    'עריכת AI מקומית נכשלה בטעינת המודל.\n\n' +
+    '• ב-Chrome עם window.ai — נסה שם (בלי מודל מקומי).\n' +
+    '• ודא ש-workflow "Publish AI model (Git LFS)" רץ בהצלחה.\n' +
+    '• קבצי LFS נטענים מ-media.githubusercontent.com (לא מ-Pages).\n\n' +
     `פרטים: ${msg}`
   );
 }
@@ -122,15 +132,25 @@ async function getGenerator(onProgress) {
   generatorPromise = (async () => {
     const { pipeline, env } = await import('@huggingface/transformers');
 
-    const useLocal = await hasSelfHostedModel();
-    await configureEnv(env, { useLocal });
-
-    if (!useLocal) {
-      // Do not burn time on HF Hub when it repeatedly fails for this deployment.
+    const modelBase = await resolveModelBase();
+    if (!modelBase) {
       throw new Error(
-        'אין מודל ONNX בשרת האתר (GitHub Pages מוגבל ל-100MB). ' +
-          'השתמש ב-Chrome עם window.ai, או ארח את המודל ב-Release/CDN.',
+        'לא נמצא מודל ONNX (לא ב-Pages ולא ב-Git LFS media). ' +
+          'הרץ את workflow Publish AI model (Git LFS), או השתמש ב-Chrome עם window.ai.',
       );
+    }
+
+    env.useBrowserCache = true;
+    env.allowLocalModels = true;
+    env.allowRemoteModels = false;
+    env.localModelPath = modelBase;
+
+    try {
+      if (env.backends?.onnx?.wasm) {
+        env.backends.onnx.wasm.numThreads = 1;
+      }
+    } catch {
+      // ignore
     }
 
     const preferGpu = await canUseWebGpu();
@@ -139,7 +159,7 @@ async function getGenerator(onProgress) {
     let lastError = null;
     for (const device of devices) {
       try {
-        console.log(`[AI Editor] Loading ${LOCAL_MODEL_NAME} on device=${device}`);
+        console.log(`[AI Editor] Loading ${LOCAL_MODEL_NAME} on ${device} from ${modelBase}`);
         return await loadPipeline(pipeline, LOCAL_MODEL_NAME, device, onProgress);
       } catch (err) {
         lastError = err;
