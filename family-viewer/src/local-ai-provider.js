@@ -1,23 +1,21 @@
 /**
  * Local browser AI via Hugging Face Transformers.js (ONNX + WebGPU/WASM).
  *
- * Model files live under models/smollm2-360m/ (ONNX in Git LFS).
- * - JSON/tokenizer: raw.githubusercontent.com
- * - ONNX binary: media.githubusercontent.com (raw serves LFS *pointers*, which
- *   break ONNX Runtime with "protobuf parsing failed")
+ * Model tree is in Git LFS under models/smollm2-360m/.
+ * media.githubusercontent.com serves real bytes only when the URL uses a
+ * *commit SHA* — the `master` ref 404s some files (e.g. config.json) and
+ * raw.githubusercontent.com returns LFS pointer text (breaks ONNX protobuf).
  */
 
 const LOCAL_MODEL_NAME = 'smollm2-360m';
+const REPO = 'baobabprince/anafim';
 
-const GITHUB_RAW_MODELS_BASE =
-  'https://raw.githubusercontent.com/baobabprince/anafim/master/models/';
-
-const GITHUB_LFS_MEDIA_PREFIX =
-  'https://media.githubusercontent.com/media/baobabprince/anafim/master/';
+/** Fallback if GitHub API is rate-limited; updated when Publish AI model runs. */
+const FALLBACK_MODEL_SHA = '481eb7fcffb56fa9ceed4ded60268a3147e9c0bc';
 
 let generatorPromise = null;
 let lastProgress = { status: 'idle', progress: 0 };
-let fetchPatched = false;
+let resolvedModelBase = null;
 
 export function getLocalAiProgress() {
   return { ...lastProgress };
@@ -28,57 +26,30 @@ export async function isLocalAiAvailable() {
   return true;
 }
 
-/** Map raw.githubusercontent.com/.../file.onnx → media.githubusercontent.com/.../file.onnx */
-function installOnnxFetchRewrite() {
-  if (fetchPatched || typeof window === 'undefined' || !window.fetch) return;
-  const originalFetch = window.fetch.bind(window);
+async function resolveCommitSha() {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/commits/master`, {
+      headers: { Accept: 'application/vnd.github+json' },
+      cache: 'no-cache',
+    });
+    if (!res.ok) throw new Error(`commits API ${res.status}`);
+    const data = await res.json();
+    if (data?.sha) return data.sha;
+  } catch (err) {
+    console.warn('[AI Editor] commit SHA lookup failed, using fallback', err);
+  }
+  return FALLBACK_MODEL_SHA;
+}
 
-  window.fetch = (input, init) => {
-    try {
-      const url = typeof input === 'string' ? input : input && input.url;
-      if (
-        typeof url === 'string' &&
-        url.includes('raw.githubusercontent.com/baobabprince/anafim/') &&
-        /\.onnx(_data)?(\?|$)/i.test(url)
-      ) {
-        const mediaUrl = url.replace(
-          'https://raw.githubusercontent.com/baobabprince/anafim/master/',
-          GITHUB_LFS_MEDIA_PREFIX,
-        );
-        console.log('[AI Editor] ONNX fetch rewrite →', mediaUrl);
-        return originalFetch(mediaUrl, init);
-      }
-    } catch {
-      // fall through
-    }
-    return originalFetch(input, init);
-  };
-
-  fetchPatched = true;
+function mediaModelsBase(sha) {
+  return `https://media.githubusercontent.com/media/${REPO}/${sha}/models/`;
 }
 
 async function urlOk(url) {
   try {
-    const res = await fetch(url, { method: 'HEAD', cache: 'no-cache', mode: 'cors' });
-    if (res.ok) return true;
-    const get = await fetch(url, {
-      method: 'GET',
-      headers: { Range: 'bytes=0-0' },
-      cache: 'no-cache',
-      mode: 'cors',
-    });
-    return get.ok || get.status === 206;
-  } catch {
-    return false;
-  }
-}
-
-async function onnxMediaOk() {
-  const url = `${GITHUB_LFS_MEDIA_PREFIX}models/${LOCAL_MODEL_NAME}/onnx/model_q4f16.onnx`;
-  try {
     const res = await fetch(url, {
       method: 'GET',
-      headers: { Range: 'bytes=0-31' },
+      headers: { Range: 'bytes=0-63' },
       cache: 'no-cache',
       mode: 'cors',
     });
@@ -89,6 +60,38 @@ async function onnxMediaOk() {
   } catch {
     return false;
   }
+}
+
+async function resolveModelBase() {
+  if (resolvedModelBase) return resolvedModelBase;
+
+  const sha = await resolveCommitSha();
+  const base = mediaModelsBase(sha);
+  const configUrl = `${base}${LOCAL_MODEL_NAME}/config.json`;
+  const onnxUrl = `${base}${LOCAL_MODEL_NAME}/onnx/model_q4f16.onnx`;
+
+  const configOk = await urlOk(configUrl);
+  const onnxOk = await urlOk(onnxUrl);
+  console.log('[AI Editor] media base', base, { configOk, onnxOk, sha });
+
+  if (configOk && onnxOk) {
+    resolvedModelBase = base;
+    return base;
+  }
+
+  // Last resort: hardcoded fallback SHA
+  if (sha !== FALLBACK_MODEL_SHA) {
+    const fb = mediaModelsBase(FALLBACK_MODEL_SHA);
+    if (
+      (await urlOk(`${fb}${LOCAL_MODEL_NAME}/config.json`)) &&
+      (await urlOk(`${fb}${LOCAL_MODEL_NAME}/onnx/model_q4f16.onnx`))
+    ) {
+      resolvedModelBase = fb;
+      return fb;
+    }
+  }
+
+  return null;
 }
 
 async function canUseWebGpu() {
@@ -133,7 +136,7 @@ function friendlyFetchError(err) {
   return (
     'עריכת AI מקומית נכשלה בטעינת המודל.\n\n' +
     '• ב-Chrome עם window.ai — נסה שם (בלי מודל מקומי).\n' +
-    '• ONNX נטען מ-media.githubusercontent.com (Git LFS).\n\n' +
+    '• המודל נטען מ-media.githubusercontent.com לפי commit SHA (Git LFS).\n\n' +
     `פרטים: ${msg}`
   );
 }
@@ -142,14 +145,10 @@ async function getGenerator(onProgress) {
   if (generatorPromise) return generatorPromise;
 
   generatorPromise = (async () => {
-    installOnnxFetchRewrite();
-
-    const configUrl = `${GITHUB_RAW_MODELS_BASE}${LOCAL_MODEL_NAME}/config.json`;
-    const configOk = await urlOk(configUrl);
-    const onnxOk = await onnxMediaOk();
-    if (!configOk || !onnxOk) {
+    const modelBase = await resolveModelBase();
+    if (!modelBase) {
       throw new Error(
-        'לא נמצא מודל מלא (config ב-raw / ONNX ב-LFS media). ' +
+        'לא נמצא מודל ONNX תקין ב-Git LFS media. ' +
           'הרץ Publish AI model (Git LFS) או השתמש ב-Chrome עם window.ai.',
       );
     }
@@ -159,8 +158,7 @@ async function getGenerator(onProgress) {
     env.useBrowserCache = true;
     env.allowLocalModels = true;
     env.allowRemoteModels = false;
-    // JSON comes from raw; fetch rewrite sends .onnx to media CDN
-    env.localModelPath = GITHUB_RAW_MODELS_BASE;
+    env.localModelPath = modelBase;
 
     try {
       if (env.backends?.onnx?.wasm) {
@@ -176,9 +174,7 @@ async function getGenerator(onProgress) {
     let lastError = null;
     for (const device of devices) {
       try {
-        console.log(
-          `[AI Editor] Loading ${LOCAL_MODEL_NAME} on ${device} (raw JSON + LFS media ONNX)`,
-        );
+        console.log(`[AI Editor] Loading ${LOCAL_MODEL_NAME} on ${device} from ${modelBase}`);
         return await loadPipeline(pipeline, LOCAL_MODEL_NAME, device, onProgress);
       } catch (err) {
         lastError = err;
