@@ -1,0 +1,18 @@
+name: Hide AI edit on mobile
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/hide_ai_edit_on_mobile.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/family.css family-viewer/src/FamilyExperience.jsx
+          git status
+          git commit -m "ui: hide AI edit button on mobile until feature works there" || exit 0
+          git push
