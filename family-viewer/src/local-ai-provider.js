@@ -1,15 +1,16 @@
 /**
  * Local browser AI via Hugging Face Transformers.js (ONNX + WebGPU/WASM).
  *
- * Weights live in the repo under models/smollm2-360m/ with *.onnx in Git LFS.
- * GitHub Pages cannot serve LFS blobs, so we load from media.githubusercontent.com.
+ * Weights live under models/smollm2-360m/ with *.onnx in Git LFS.
+ * GitHub Pages cannot serve LFS blobs. We load the whole tree from
+ * raw.githubusercontent.com (JSON as-is; ONNX redirects to LFS media).
  */
 
 const LOCAL_MODEL_NAME = 'smollm2-360m';
 
-/** Public LFS media base (public repo). */
-const LFS_MEDIA_BASE =
-  'https://media.githubusercontent.com/media/baobabprince/anafim/master/models/';
+/** Single origin for both regular and LFS files (redirects for .onnx). */
+const GITHUB_RAW_MODELS_BASE =
+  'https://raw.githubusercontent.com/baobabprince/anafim/master/models/';
 
 let generatorPromise = null;
 let lastProgress = { status: 'idle', progress: 0 };
@@ -33,7 +34,6 @@ async function urlOk(url) {
   try {
     const res = await fetch(url, { method: 'HEAD', cache: 'no-cache', mode: 'cors' });
     if (res.ok) return true;
-    // Some CDNs reject HEAD — try a tiny ranged GET
     const get = await fetch(url, {
       method: 'GET',
       headers: { Range: 'bytes=0-0' },
@@ -47,16 +47,13 @@ async function urlOk(url) {
 }
 
 /**
- * Prefer same-origin Pages copy if complete; otherwise Git LFS media URL.
+ * Prefer same-origin Pages copy if complete; otherwise GitHub raw (+ LFS).
  * @returns {Promise<string|null>} base URL ending with models/
  */
 async function resolveModelBase() {
   if (resolvedModelBase) return resolvedModelBase;
 
-  const candidates = [
-    pagesModelsBaseUrl(),
-    LFS_MEDIA_BASE,
-  ];
+  const candidates = [pagesModelsBaseUrl(), GITHUB_RAW_MODELS_BASE];
 
   for (const base of candidates) {
     const configUrl = `${base}${LOCAL_MODEL_NAME}/config.json`;
@@ -120,8 +117,7 @@ function friendlyFetchError(err) {
   return (
     'עריכת AI מקומית נכשלה בטעינת המודל.\n\n' +
     '• ב-Chrome עם window.ai — נסה שם (בלי מודל מקומי).\n' +
-    '• ודא ש-workflow "Publish AI model (Git LFS)" רץ בהצלחה.\n' +
-    '• קבצי LFS נטענים מ-media.githubusercontent.com (לא מ-Pages).\n\n' +
+    '• המודל נטען מ-raw.githubusercontent.com (ONNX דרך Git LFS).\n\n' +
     `פרטים: ${msg}`
   );
 }
@@ -135,8 +131,7 @@ async function getGenerator(onProgress) {
     const modelBase = await resolveModelBase();
     if (!modelBase) {
       throw new Error(
-        'לא נמצא מודל ONNX (לא ב-Pages ולא ב-Git LFS media). ' +
-          'הרץ את workflow Publish AI model (Git LFS), או השתמש ב-Chrome עם window.ai.',
+        'לא נמצא מודל ONNX. הרץ Publish AI model (Git LFS) או השתמש ב-Chrome עם window.ai.',
       );
     }
 
