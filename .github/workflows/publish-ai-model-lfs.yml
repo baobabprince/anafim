@@ -70,8 +70,6 @@ jobs:
           else:
               raise SystemExit("no onnx weight downloaded")
           PY
-          # Force re-add so JSON files migrate into LFS if needed
-          git lfs migrate import --no-rewrite --include="models/**" || true
           du -sh models/smollm2-360m
           find models/smollm2-360m -type f -printf '%s\t%p\n' | sort -n
 
@@ -82,27 +80,27 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .gitattributes models
           git status
-          git lfs ls-files
+          git lfs status || true
+          git lfs ls-files || true
           if git diff --staged --quiet; then
             echo "No model changes"
             exit 0
           fi
           git commit -m "feat(ai): store full SmolLM2 model tree in Git LFS"
-          git lfs push origin HEAD:master
+          # Push LFS objects for the current branch, then git refs
+          git lfs push origin "$(git rev-parse --abbrev-ref HEAD)"
           git push origin HEAD:master
 
       - name: Verify media URL serves binary ONNX (not LFS pointer)
         run: |
           set -euo pipefail
-          # Give GitHub a moment to expose LFS media
-          sleep 5
+          sleep 8
           URL="https://media.githubusercontent.com/media/baobabprince/anafim/master/models/smollm2-360m/onnx/model_q4f16.onnx"
           echo "Checking $URL"
-          # First bytes of a valid ONNX protobuf are not the LFS pointer header
-          HEAD=$(curl -sL "$URL" | head -c 64 | xxd -p | head -c 40)
-          echo "head hex: $HEAD"
-          if curl -sL "$URL" | head -c 20 | grep -q "version https://git-lfs"; then
+          if curl -sL "$URL" | head -c 40 | grep -q "version https://git-lfs"; then
             echo "ERROR: still receiving LFS pointer text"
+            curl -sI "$URL" | head -20
             exit 1
           fi
-          echo "OK: does not look like an LFS pointer"
+          SIZE=$(curl -sIL "$URL" | grep -i content-length | tail -1)
+          echo "OK (not an LFS pointer). $SIZE"
