@@ -1,19 +1,31 @@
 /**
  * Gemini AI Provider for in-browser GEDCOM editing.
  * Works across Mobile (iOS/Android), Safari, Firefox, and Chrome.
+ *
+ * Security notes:
+ * - API key is sent via x-goog-api-key header (not in the URL query string).
+ * - Console logs never print full keys (only masked prefix…suffix).
  */
 
 const STORAGE_KEY = 'anafim_gemini_api_key';
 
-/** Prefer current free-tier flash models; 1.5-flash is no longer available on v1beta. */
+/** Current models (as of late 2026). Older 1.5 / 2.x flash ids return 404. */
 const MODEL_CANDIDATES = [
-  'gemini-2.0-flash',
-  'gemini-2.5-flash',
+  'gemini-3.8-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
   'gemini-flash-latest',
-  'gemini-2.0-flash-lite',
 ];
 
 const DEFAULT_MODEL = MODEL_CANDIDATES[0];
+
+/** Mask secrets for logs: show only ends. */
+export function maskSecret(value, head = 4, tail = 4) {
+  const s = String(value ?? '').trim();
+  if (!s) return '(empty)';
+  if (s.length <= head + tail + 1) return '***';
+  return `${s.slice(0, head)}…${s.slice(-tail)}`;
+}
 
 function getStorage() {
   try {
@@ -88,7 +100,8 @@ export async function testGeminiApiKey(apiKey) {
 }
 
 async function callGeminiOnce(key, model, prompt) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  // Key in header only — avoids full secret in Network panel request URL
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   const body = {
     contents: [
@@ -109,6 +122,7 @@ async function callGeminiOnce(key, model, prompt) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-goog-api-key': key,
       },
       body: JSON.stringify(body),
     });
@@ -143,13 +157,15 @@ async function callGeminiOnce(key, model, prompt) {
 
 /**
  * Calls Google Gemini REST API from the browser with structured JSON output.
- * Tries several current model ids when the preferred one is missing (404).
+ * Tries several current model ids when the preferred one is missing (404/503).
  */
 export async function promptGemini(prompt, { apiKey, model } = {}) {
   const key = (apiKey || getGeminiApiKey()).trim();
   if (!key) {
     throw new Error('לא הוגדר מפתח Gemini API. הזן מפתח כדי להשתמש ב-AI.');
   }
+
+  console.log('[Gemini AI] Using key', maskSecret(key));
 
   const models = model
     ? [model, ...MODEL_CANDIDATES.filter((m) => m !== model)]
@@ -164,9 +180,14 @@ export async function promptGemini(prompt, { apiKey, model } = {}) {
     } catch (err) {
       lastError = err;
       const detail = String(err?.detail || err?.message || '');
-      const notFound =
-        err?.status === 404 || /not found|is not supported for generateContent/i.test(detail);
-      if (notFound) {
+      const tryNext =
+        err?.status === 404 ||
+        err?.status === 503 ||
+        /not found|no longer available|is not supported for generateContent|overloaded|unavailable/i.test(
+          detail,
+        );
+
+      if (tryNext) {
         console.warn('[Gemini AI] model unavailable, trying next:', candidate, detail);
         continue;
       }
