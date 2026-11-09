@@ -24,7 +24,10 @@ export function isLikelyMobileDevice() {
   const ua = navigator.userAgent || '';
   const mobileUa = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
   const touch = typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1;
-  const coarse = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  const coarse =
+    typeof window !== 'undefined' &&
+    window.matchMedia &&
+    window.matchMedia('(pointer: coarse)').matches;
   return Boolean(mobileUa || (touch && coarse));
 }
 
@@ -86,7 +89,6 @@ async function resolveModelBase() {
     return base;
   }
 
-  // Last resort: hardcoded fallback SHA
   if (sha !== FALLBACK_MODEL_SHA) {
     const fb = mediaModelsBase(FALLBACK_MODEL_SHA);
     if (
@@ -154,14 +156,14 @@ function friendlyFetchError(err) {
   if (/network|Failed to fetch|Load failed|timeout/i.test(msg)) {
     return (
       'הורדת המודל המקומי נכשלה (שגיאת רשת).\n\n' +
-      '• מומלץ: הזן מפתח Google Gemini חינמי בחלון העריכה (פועל מיידית בכל הניידים וב-Safari/Firefox ללא הורדה כבדה).\n' +
+      '• מומלץ: הזן מפתח Google Gemini חינמי בחלון העריכה.\n' +
       '• ב-Chrome שולחני: ניתן להשתמש ב-window.ai המובנה.\n\n' +
       `פרטים: ${msg}`
     );
   }
   return (
     'עריכת AI מקומית בדפדפן נכשלה.\n\n' +
-    '• מומלץ: הזן מפתח Google Gemini חינמי בחלון העריכה (פועל מיידית בכל הניידים וב-Safari/Firefox ללא הורדה כבדה).\n' +
+    '• מומלץ: הזן מפתח Google Gemini חינמי בחלון העריכה.\n' +
     '• ב-Chrome שולחני: ניתן להשתמש ב-window.ai המובנה.\n\n' +
     `פרטים טכניים: ${msg}`
   );
@@ -187,26 +189,17 @@ async function getGenerator(onProgress) {
     const gpuInfo = await getGpuInfo();
     const attempts = [];
 
-    // 1. WebGPU attempts (desktop Chrome/Edge, or supported WebGPU devices)
-    if (gpuInfo) {
-      if (gpuInfo.hasF16 && modelBase) {
-        attempts.push({
-          device: 'webgpu',
-          dtype: 'q4f16',
-          modelId: LOCAL_MODEL_NAME,
-          localPath: modelBase,
-        });
-      }
+    // Prefer local q4f16 when present (this is what CI publishes)
+    if (gpuInfo && modelBase) {
       attempts.push({
         device: 'webgpu',
-        dtype: 'q4',
-        modelId: REMOTE_FALLBACK_MODEL,
-        localPath: null,
+        dtype: 'q4f16',
+        modelId: LOCAL_MODEL_NAME,
+        localPath: modelBase,
       });
     }
 
-    // 2. WASM attempts (Safari, Firefox, Mobile, or fallback from WebGPU)
-    // In WASM, dtype MUST be q4 with float32 activations; q4f16 is not supported by WASM
+    // WASM + local q4 only if that file exists (often missing; we only ship q4f16)
     const localHasQ4 = modelBase ? await hasLocalModelFile(modelBase, 'model_q4.onnx') : false;
     if (localHasQ4) {
       attempts.push({
@@ -217,7 +210,15 @@ async function getGenerator(onProgress) {
       });
     }
 
-    // Remote Hugging Face Hub fallback for WASM
+    // Remote Hugging Face Hub fallback
+    if (gpuInfo) {
+      attempts.push({
+        device: 'webgpu',
+        dtype: 'q4',
+        modelId: REMOTE_FALLBACK_MODEL,
+        localPath: null,
+      });
+    }
     attempts.push({
       device: 'wasm',
       dtype: 'q4',
@@ -262,6 +263,22 @@ async function getGenerator(onProgress) {
   return generatorPromise;
 }
 
+function extractGeneratedText(result) {
+  if (result == null) return '';
+  if (typeof result === 'string') return result;
+  if (Array.isArray(result)) {
+    const first = result[0];
+    if (typeof first === 'string') return first;
+    if (first && typeof first.generated_text === 'string') return first.generated_text;
+    if (first && typeof first.text === 'string') return first.text;
+    if (first != null) return String(first);
+    return '';
+  }
+  if (typeof result.generated_text === 'string') return result.generated_text;
+  if (typeof result.text === 'string') return result.text;
+  return String(result);
+}
+
 export async function promptLocalAi(prompt, { onProgress } = {}) {
   const generator = await getGenerator(onProgress);
 
@@ -281,9 +298,5 @@ export async function promptLocalAi(prompt, { onProgress } = {}) {
     return_full_text: false,
   });
 
-  const text = Array.isArray(result)
-    ? (result[0]?.generated_text ?? result[0]?.text ?? String(result[0] ?? ''))
-    : String(result?.generated_text ?? result ?? '');
-
-  return text.trim();
+  return extractGeneratedText(result).trim();
 }
