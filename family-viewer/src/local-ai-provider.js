@@ -1,3 +1,4 @@
+import { configureEnv } from './ort-config.js';
 family-viewer/src/local-ai-provider.js <<'EOF'
 /**
  * Local browser AI via Transformers.js (ONNX + WebGPU/WASM).
@@ -75,6 +76,7 @@ async function getGenerator(onProgress) {
     env.allowLocalModels = false;
     env.allowRemoteModels = true;
     env.useBrowserCache = true;
+    configureEnv(env);
     try {
       if (env.backends?.onnx?.wasm) env.backends.onnx.wasm.numThreads = 1;
     } catch {
