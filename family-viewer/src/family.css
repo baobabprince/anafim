@@ -62,64 +62,65 @@ button.fx-canvas-caption{min-height:30px;padding:3px 9px;border-radius:5px}butto
 .fx-focus-edit-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  min-height: 26px;
-  background: #eef5e7;
-  border: 1px solid #c9dcc1;
-  border-radius: 6px;
-  color: #2c5423;
+  gap: 3px;
+  padding: 2px 6px;
+  min-height: 0;
+  background: #e8eedf;
+  border: none;
+  border-radius: 4px;
+  color: #385434;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
+  line-height: 1.2;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.12s ease;
   touch-action: manipulation;
 }
 .fx-focus-edit-btn:hover,
 .fx-focus-edit-btn:active {
-  background: #dfedd3;
-  border-color: #b5cca9;
-  color: #1f4218;
+  background: #dce6d2;
+  color: #2d4528;
 }
 .fx-focus-undo-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  min-height: 26px;
-  background: #fdf0e6;
-  border: 1px solid #ebd0c2;
-  border-radius: 6px;
+  gap: 3px;
+  padding: 2px 6px;
+  min-height: 0;
+  background: #faeade;
+  border: none;
+  border-radius: 4px;
   color: #8d4d33;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
+  line-height: 1.2;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.12s ease;
   touch-action: manipulation;
 }
 .fx-focus-undo-btn:hover,
 .fx-focus-undo-btn:active {
-  background: #fae4d5;
+  background: #f5dfd0;
 }
 .fx-inspector-edit-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 9px;
-  min-height: 26px;
-  background: #eef5e7;
-  border: 1px solid #c9dcc1;
+  padding: 3px 8px;
+  min-height: 0;
+  background: #eef4e7;
+  border: 1px solid #d4dfca;
   border-radius: 6px;
-  color: #2c5423;
+  color: #32522e;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.12s ease;
   touch-action: manipulation;
 }
 .fx-inspector-edit-btn:hover,
 .fx-inspector-edit-btn:active {
-  background: #dfedd3;
+  background: #e4ecd9;
 }
 
 @media (max-width: 600px) {
@@ -128,14 +129,14 @@ button.fx-canvas-caption{min-height:30px;padding:3px 9px;border-radius:5px}butto
     padding: 6px 12px;
   }
   .fx-focus-edit-btn {
-    padding: 5px 12px;
-    min-height: 32px;
-    font-size: 12px;
+    padding: 2px 7px;
+    min-height: 0;
+    font-size: 11px;
   }
   .fx-focus-undo-btn {
-    padding: 5px 10px;
-    min-height: 32px;
-    font-size: 12px;
+    padding: 2px 7px;
+    min-height: 0;
+    font-size: 11px;
   }
   .fx-inspector-edit-btn {
     padding: 6px 12px;

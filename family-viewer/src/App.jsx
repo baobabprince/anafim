@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Network, UsersRound, Upload, Search, ChevronDown, ChevronLeft, ChevronRight, ArrowUpLeft, FileText, ShieldCheck, X, Menu, MapPin, CalendarDays, BriefcaseBusiness, Heart, GitFork, HelpCircle, Printer, Download, Check, AlertTriangle, LoaderCircle, Home, Layers3, Leaf, Sprout, LockKeyhole, Info, RotateCcw, Baby, Flower2, CornerDownLeft, MousePointer2, ArrowRight, ArrowLeft, Clock3, Wrench } from 'lucide-react';
+import { Network, UsersRound, Upload, Search, ChevronDown, ChevronLeft, ChevronRight, ArrowUpLeft, FileText, ShieldCheck, X, Menu, MapPin, CalendarDays, BriefcaseBusiness, Heart, GitFork, HelpCircle, Printer, Download, Share2, Mail, Check, AlertTriangle, LoaderCircle, Home, Layers3, Leaf, Sprout, LockKeyhole, Info, RotateCcw, Baby, Flower2, CornerDownLeft, MousePointer2, ArrowRight, ArrowLeft, Clock3, Wrench } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import FamilyView from './FamilyExperience.jsx';
 import CloudAccess from './CloudAccess.jsx';
@@ -492,11 +492,59 @@ function FileView({bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved, 
             <Upload size={16} />פתיחת קובץ
           </button>
           {!bundle.isDemo && (
-            <button type="button" className="button button-white" onClick={onDownload}>
-              <Download size={16} />הורדה
-            </button>
+            <>
+              <button type="button" className="button button-white" onClick={onDownload} title="שמירה כקובץ GEDCOM במכשיר">
+                <Download size={16} />שמירה במכשיר
+              </button>
+              <button
+                type="button"
+                className="button button-white"
+                title="שיתוף הקובץ (מייל, WhatsApp וכו׳ לפי המכשיר)"
+                onClick={async () => {
+                  try {
+                    let raw = bundle.raw || '';
+                    if (/^1 CHAR .*$/m.test(raw)) raw = raw.replace(/^1 CHAR .*$/m, '1 CHAR UTF-8');
+                    else if (/^0 HEAD\s*$/m.test(raw)) raw = raw.replace(/^0 HEAD\s*$/m, '0 HEAD\n1 CHAR UTF-8');
+                    let name = (bundle.filename || 'family.ged').replace(/\.(gedcom|txt)$/i, '.ged');
+                    if (!/\.ged$/i.test(name)) name += '.ged';
+                    const file = new File([raw], name, { type: 'text/plain;charset=utf-8' });
+                    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+                      await navigator.share({
+                        files: [file],
+                        title: name,
+                        text: 'קובץ GEDCOM מתוך ענפים',
+                      });
+                      onToast?.('הקובץ נשלח לשיתוף');
+                      return;
+                    }
+                    if (navigator.share) {
+                      await navigator.share({
+                        title: name,
+                        text: 'ייצוא GEDCOM מתוך ענפים — השתמשו ב«שמירה במכשיר» כדי לצרף את הקובץ למייל.',
+                      });
+                      onToast?.('נפתח שיתוף (לצירוף קובץ — «שמירה במכשיר»)');
+                      return;
+                    }
+                    onDownload();
+                    onToast?.('הקובץ הורד. אפשר לצרף אותו למייל ידנית.');
+                  } catch (err) {
+                    if (err && err.name === 'AbortError') return;
+                    console.warn('share failed', err);
+                    onDownload();
+                    onToast?.('השיתוף לא זמין — הקובץ הורד למכשיר');
+                  }
+                }}
+              >
+                <Share2 size={16} />שיתוף
+              </button>
+            </>
           )}
         </div>
+        {!bundle.isDemo && (
+          <p className="file-export-hint" style={{ margin: '8px 0 0', fontSize: 11, color: '#6a7a62', lineHeight: 1.45 }}>
+            שמירה מקומית מורידה קובץ <span dir="ltr">.ged</span>. שיתוף פותח את תפריט המכשיר (מייל, WhatsApp וכו׳) כשהדפדפן תומך.
+          </p>
+        )}
       </div>
 
       <div className="file-tools-section">
