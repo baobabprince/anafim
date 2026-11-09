@@ -123,17 +123,44 @@ export function validatePersonUpdates(updates, currentPerson = {}) {
     'givenName',
     'surname',
     'nickname',
+    'alternateNames',
+    'alternateName',
     'sex',
     'birthDate',
     'birthPlace',
     'deathDate',
     'deathPlace',
     'deathCause',
+    'burialDate',
+    'burialPlace',
+    'cremationDate',
+    'cremationPlace',
+    'immigrationDate',
+    'immigrationPlace',
+    'emigrationDate',
+    'emigrationPlace',
+    'naturalizationDate',
+    'naturalizationPlace',
+    'barMitzvahDate',
+    'barMitzvahPlace',
+    'batMitzvahDate',
+    'batMitzvahPlace',
+    'baptismDate',
+    'baptismPlace',
+    'graduationDate',
+    'graduationPlace',
+    'retirementDate',
+    'retirementPlace',
     'occupation',
-    'notes',
+    'education',
     'residencePlace',
     'residenceDate',
-    'education',
+    'title',
+    'religion',
+    'nationality',
+    'description',
+    'idNumber',
+    'notes',
     'source'
   ]);
 
@@ -145,11 +172,44 @@ export function validatePersonUpdates(updates, currentPerson = {}) {
   const sanitized = {};
   const diff = {};
 
+  // Validate Alternate Names
+  if (updates.alternateNames !== undefined && updates.alternateNames !== null) {
+    if (typeof updates.alternateNames === 'string') {
+      const alt = updates.alternateNames.trim();
+      sanitized.alternateNames = alt ? [alt] : [];
+      diff.alternateNames = { old: currentPerson.alternateNames || [], new: sanitized.alternateNames };
+    } else if (Array.isArray(updates.alternateNames)) {
+      const valid = updates.alternateNames.every(a => typeof a === 'string');
+      if (!valid) {
+        errors.push('מערך alternateNames חייב להכיל מחרוזות בלבד.');
+      } else {
+        sanitized.alternateNames = updates.alternateNames.map(a => a.trim()).filter(Boolean);
+        diff.alternateNames = { old: currentPerson.alternateNames || [], new: sanitized.alternateNames };
+      }
+    } else {
+      errors.push('השדה alternateNames חייב להיות מחרוזת או מערך מחרוזות.');
+    }
+  } else if (updates.alternateName !== undefined && updates.alternateName !== null) {
+    if (typeof updates.alternateName === 'string') {
+      const alt = updates.alternateName.trim();
+      sanitized.alternateNames = alt ? [alt] : [];
+      diff.alternateNames = { old: currentPerson.alternateNames || [], new: sanitized.alternateNames };
+    } else {
+      errors.push('השדה alternateName חייב להיות מחרוזת.');
+    }
+  }
+
   // Validate String fields
   const stringFields = [
     'givenName', 'surname', 'nickname',
     'birthPlace', 'deathPlace', 'deathCause',
-    'occupation', 'residencePlace', 'education', 'source'
+    'burialPlace', 'cremationPlace',
+    'immigrationPlace', 'emigrationPlace', 'naturalizationPlace',
+    'barMitzvahPlace', 'batMitzvahPlace', 'baptismPlace',
+    'graduationPlace', 'retirementPlace',
+    'occupation', 'education', 'residencePlace',
+    'title', 'religion', 'nationality', 'description', 'idNumber',
+    'source'
   ];
 
   for (const field of stringFields) {
@@ -176,7 +236,13 @@ export function validatePersonUpdates(updates, currentPerson = {}) {
   }
 
   // Validate & format Date fields
-  const dateFields = ['birthDate', 'deathDate', 'residenceDate'];
+  const dateFields = [
+    'birthDate', 'deathDate', 'residenceDate',
+    'burialDate', 'cremationDate',
+    'immigrationDate', 'emigrationDate', 'naturalizationDate',
+    'barMitzvahDate', 'batMitzvahDate', 'baptismDate',
+    'graduationDate', 'retirementDate'
+  ];
   for (const field of dateFields) {
     if (updates[field] !== undefined && updates[field] !== null) {
       if (typeof updates[field] !== 'string') {
@@ -330,6 +396,27 @@ export function updatePersonRecord(rawBlock, updates, personId) {
     }
   }
 
+  // Update alternateNames (1 NAME ... / 2 TYPE aka)
+  if (updates.alternateNames !== undefined && Array.isArray(updates.alternateNames)) {
+    for (const alt of updates.alternateNames) {
+      if (!alt) continue;
+      const cleanAlt = alt.trim();
+      if (!cleanAlt) continue;
+
+      // Check if already exists in subNodes NAME nodes
+      const altNameGed = cleanAlt.includes('/') ? cleanAlt : `${cleanAlt}`;
+      const existingNameNode = subNodes.find(n => n.tag === 'NAME' && (n.val === altNameGed || n.val?.replace(/\//g, '').trim() === cleanAlt.replace(/\//g, '').trim()));
+      if (!existingNameNode) {
+        subNodes.push({
+          tag: 'NAME',
+          val: altNameGed,
+          raw: `1 NAME ${altNameGed}`,
+          children: [{ level: 2, tag: 'TYPE', val: 'aka', raw: '2 TYPE aka' }]
+        });
+      }
+    }
+  }
+
   // Update SEX
   if (updates.sex !== undefined) {
     let sexNode = subNodes.find(n => n.tag === 'SEX');
@@ -443,6 +530,98 @@ export function updatePersonRecord(rawBlock, updates, personId) {
   // Update RESI
   if (updates.residenceDate !== undefined || updates.residencePlace !== undefined) {
     updateEventNode('RESI', updates.residenceDate, updates.residencePlace);
+  }
+
+  // Update BURI (קבורה)
+  if (updates.burialDate !== undefined || updates.burialPlace !== undefined) {
+    updateEventNode('BURI', updates.burialDate, updates.burialPlace);
+  }
+
+  // Update CREM (שריפת גופה)
+  if (updates.cremationDate !== undefined || updates.cremationPlace !== undefined) {
+    updateEventNode('CREM', updates.cremationDate, updates.cremationPlace);
+  }
+
+  // Update IMMI (עלייה / הגירה לארץ)
+  if (updates.immigrationDate !== undefined || updates.immigrationPlace !== undefined) {
+    updateEventNode('IMMI', updates.immigrationDate, updates.immigrationPlace);
+  }
+
+  // Update EMIG (הגירה)
+  if (updates.emigrationDate !== undefined || updates.emigrationPlace !== undefined) {
+    updateEventNode('EMIG', updates.emigrationDate, updates.emigrationPlace);
+  }
+
+  // Update NATU (התאזרחות)
+  if (updates.naturalizationDate !== undefined || updates.naturalizationPlace !== undefined) {
+    updateEventNode('NATU', updates.naturalizationDate, updates.naturalizationPlace);
+  }
+
+  // Update BARM (בר מצווה)
+  if (updates.barMitzvahDate !== undefined || updates.barMitzvahPlace !== undefined) {
+    updateEventNode('BARM', updates.barMitzvahDate, updates.barMitzvahPlace);
+  }
+
+  // Update BASM (בת מצווה)
+  if (updates.batMitzvahDate !== undefined || updates.batMitzvahPlace !== undefined) {
+    updateEventNode('BASM', updates.batMitzvahDate, updates.batMitzvahPlace);
+  }
+
+  // Update BAPM (טבילה)
+  if (updates.baptismDate !== undefined || updates.baptismPlace !== undefined) {
+    updateEventNode('BAPM', updates.baptismDate, updates.baptismPlace);
+  }
+
+  // Update GRAD (סיום לימודים)
+  if (updates.graduationDate !== undefined || updates.graduationPlace !== undefined) {
+    updateEventNode('GRAD', updates.graduationDate, updates.graduationPlace);
+  }
+
+  // Update RETI (פרישה לגמלאות)
+  if (updates.retirementDate !== undefined || updates.retirementPlace !== undefined) {
+    updateEventNode('RETI', updates.retirementDate, updates.retirementPlace);
+  }
+
+  // Helper for single text attribute (TITL, RELI, NATI, DSCR, IDNO)
+  const updateAttributeNode = (tag, val) => {
+    let node = subNodes.find(n => n.tag === tag);
+    if (val) {
+      if (!node) {
+        node = { tag, val, raw: `1 ${tag} ${val}`, children: [] };
+        subNodes.push(node);
+      } else {
+        node.val = val;
+        node.raw = `1 ${tag} ${val}`;
+      }
+    } else if (node) {
+      const idx = subNodes.indexOf(node);
+      if (idx >= 0) subNodes.splice(idx, 1);
+    }
+  };
+
+  // Update TITL (תואר)
+  if (updates.title !== undefined) {
+    updateAttributeNode('TITL', updates.title);
+  }
+
+  // Update RELI (דת)
+  if (updates.religion !== undefined) {
+    updateAttributeNode('RELI', updates.religion);
+  }
+
+  // Update NATI (לאום / אזרחות)
+  if (updates.nationality !== undefined) {
+    updateAttributeNode('NATI', updates.nationality);
+  }
+
+  // Update DSCR (תיאור פיזי)
+  if (updates.description !== undefined) {
+    updateAttributeNode('DSCR', updates.description);
+  }
+
+  // Update IDNO (מספר זיהוי)
+  if (updates.idNumber !== undefined) {
+    updateAttributeNode('IDNO', updates.idNumber);
   }
 
   // Update NOTE
