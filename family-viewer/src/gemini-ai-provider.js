@@ -9,11 +9,16 @@
 
 const STORAGE_KEY = 'anafim_gemini_api_key';
 
-/** Current models (as of late 2026). Older 1.5 / 2.x flash ids return 404. */
+/**
+ * Prefer cheaper *lite* models first; fall back to fuller flash if unavailable.
+ * Older 1.5 / 2.0 flash ids often return 404 for new API keys.
+ */
 const MODEL_CANDIDATES = [
-  'gemini-3.8-flash',
-  'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
+  'gemini-2.5-flash-lite',
+  'gemini-flash-lite-latest',
+  'gemini-3.5-flash',
+  'gemini-3.8-flash',
   'gemini-flash-latest',
 ];
 
