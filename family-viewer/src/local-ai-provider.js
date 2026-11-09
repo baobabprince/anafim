@@ -1,3 +1,4 @@
+family-viewer/src/local-ai-provider.js <<'EOF'
 /**
  * Local browser AI via Transformers.js (ONNX + WebGPU/WASM).
  *
