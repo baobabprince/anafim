@@ -8,12 +8,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 scripts/restore_edit_btn_and_export.py
-      - run: |
+        with:
+          fetch-depth: 0
+      - name: Restore family-viewer UI files from good commit
+        run: |
+          set -euo pipefail
+          GOOD=0ef665cfui_placeholder
+          # Resolve the real commit message match
+          GOOD=$(git log --oneline --all --grep='compact AI edit button' -n 1 | awk '{print $1}')
+          echo "GOOD=$GOOD"
+          test -n "$GOOD"
+          git checkout "$GOOD" -- family-viewer/src/App.jsx family-viewer/src/family.css family-viewer/src/FamilyExperience.jsx
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add family-viewer/src/family.css family-viewer/src/FamilyExperience.jsx family-viewer/src/App.jsx
+          git add family-viewer/src/App.jsx family-viewer/src/family.css family-viewer/src/FamilyExperience.jsx
           git status
           git diff --staged --quiet && exit 0
-          git commit -m "ui: compact AI edit button + GEDCOM save/share in file details"
+          git commit -m "ui: restore compact edit button and GEDCOM save/share (after docs overwrite)"
           git push
