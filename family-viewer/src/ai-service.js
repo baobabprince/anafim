@@ -6,6 +6,7 @@
 
 import { validatePersonUpdates, formatToGedcomDate } from './gedcom-ai-editor.js';
 import { isLocalAiAvailable, promptLocalAi, getLocalAiProgress } from './local-ai-provider.js';
+import { isOllamaAvailable, promptOllama, getOllamaModel } from './ollama-ai-provider.js';
 import {
   getGeminiApiKey,
   setGeminiApiKey,
@@ -53,6 +54,16 @@ export async function isWindowAiAvailable() {
  * Returns info on the currently active AI provider and available alternatives.
  */
 export async function getActiveAiProvider() {
+  if (await isOllamaAvailable()) {
+    return {
+      id: 'ollama',
+      label: `Ollama (${getOllamaModel()})`,
+      badge: 'מקומי במחשב שלך',
+      isCloud: false,
+      hasKey: false,
+    };
+  }
+
   const hasGemini = isGeminiAvailable();
   const hasWindowAi = await isWindowAiAvailable();
   const hasLocal = await isLocalAiAvailable();
@@ -200,8 +211,14 @@ export async function analyzePersonTextWithAi(
   let usedProvider = provider || null;
 
   try {
+    // 0. Ollama on this machine — preferred whenever it is running
+    if (provider === 'ollama' || (!provider && (await isOllamaAvailable()))) {
+      usedProvider = 'ollama';
+      console.log('[AI Editor] Using local Ollama');
+      rawResponse = await promptOllama(prompt);
+    }
     // 1. Explicit or configured Gemini API
-    if (provider === 'gemini' || (!provider && isGeminiAvailable())) {
+    else if (provider === 'gemini' || (!provider && isGeminiAvailable())) {
       usedProvider = 'gemini';
       console.log('[AI Editor] Using Gemini API provider');
       rawResponse = await promptGemini(prompt);
