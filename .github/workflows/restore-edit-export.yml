@@ -1,0 +1,19 @@
+name: Restore edit button + export
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/restore_edit_btn_and_export.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-viewer/src/family.css family-viewer/src/FamilyExperience.jsx family-viewer/src/App.jsx
+          git status
+          git diff --staged --quiet && exit 0
+          git commit -m "ui: compact AI edit button + GEDCOM save/share in file details"
+          git push
