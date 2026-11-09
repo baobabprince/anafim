@@ -322,10 +322,19 @@ export function EditPersonAiModal({
               </a>
             </div>
 
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleTestKey();
+              }}
+              autoComplete="off"
+              style={{ display: 'flex', gap: 6, marginBottom: 8 }}
+            >
               <div style={{ position: 'relative', flex: 1 }}>
                 <input
                   type={showKeyText ? 'text' : 'password'}
+                  name="gemini-api-key"
+                  autoComplete="off"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder="הדבק מפתח כאן: AIzaSy..."
@@ -390,7 +399,7 @@ export function EditPersonAiModal({
                   הסר
                 </button>
               )}
-            </div>
+            </form>
 
             {keyStatus && (
               <div
