@@ -95,6 +95,7 @@ export function buildPrompt(person, freeText) {
     givenName: person.given || '',
     surname: person.surname || '',
     name: person.name || '',
+    alternateNames: person.alternateNames || [],
     sex: person.sex || 'U',
     birthDate: person.birth?.date || '',
     birthPlace: person.birth?.place || '',
@@ -116,16 +117,42 @@ CRITICAL RULES:
    - "givenName": string (e.g. "אברהם")
    - "surname": string (e.g. "כהן")
    - "nickname": string (e.g. "אבי")
+   - "alternateNames": array of strings (שמות חלופיים/נוספים, e.g. ["אברהם יוסף כהן", "Abe Cohen"])
    - "sex": "M" or "F" or "U"
    - "birthDate": string (e.g. "12 JAN 1910")
    - "birthPlace": string (e.g. "ירושלים, ישראל" or "Warsaw, Poland")
    - "deathDate": string (e.g. "1980")
    - "deathPlace": string
    - "deathCause": string
-   - "occupation": string (e.g. "נגר")
-   - "education": string
-   - "residencePlace": string
-   - "residenceDate": string
+   - "burialDate": string (קבורה, BURI)
+   - "burialPlace": string (מקום קבורה / בית עלמין)
+   - "cremationDate": string (שריפת גופה, CREM)
+   - "cremationPlace": string
+   - "immigrationDate": string (עלייה / הגירה, IMMI)
+   - "immigrationPlace": string (יעד עלייה)
+   - "emigrationDate": string (הגירה החוצה, EMIG)
+   - "emigrationPlace": string
+   - "naturalizationDate": string (התאזרחות, NATU)
+   - "naturalizationPlace": string
+   - "barMitzvahDate": string (בר מצווה, BARM)
+   - "barMitzvahPlace": string
+   - "batMitzvahDate": string (בת מצווה, BASM)
+   - "batMitzvahPlace": string
+   - "baptismDate": string (טבילה, BAPM)
+   - "baptismPlace": string
+   - "graduationDate": string (סיום לימודים, GRAD)
+   - "graduationPlace": string
+   - "retirementDate": string (פרישה, RETI)
+   - "retirementPlace": string
+   - "occupation": string (מקצוע / עיסוק, e.g. "נגר")
+   - "education": string (השכלה)
+   - "residencePlace": string (מקום מגורים)
+   - "residenceDate": string (תאריך מגורים)
+   - "title": string (תואר, TITL, e.g. "הרב", "ד״ר", "פרופ'")
+   - "religion": string (דת, RELI, e.g. "יהדות")
+   - "nationality": string (לאום / אזרחות, NATI, e.g. "ישראלי")
+   - "description": string (תיאור פיזי, DSCR)
+   - "idNumber": string (מספר תעודת זהות / זיהוי רשמי, IDNO)
    - "notes": array of strings (e.g. ["עלה לארץ ב-1948"])
    - "source": string (מקור המידע, e.g. "ספר זיכרון משפחתי" or "עדות של דוד משה")
 

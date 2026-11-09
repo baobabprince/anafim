@@ -164,6 +164,10 @@ test('buildPrompt includes all necessary GEDCOM and schema context', () => {
   assert.ok(prompt.includes('נפטר ב-2010 בתל אביב'));
   assert.ok(prompt.includes('"givenName"'));
   assert.ok(prompt.includes('"deathDate"'));
+  assert.ok(prompt.includes('"alternateNames"'));
+  assert.ok(prompt.includes('"burialDate"'));
+  assert.ok(prompt.includes('"immigrationDate"'));
+  assert.ok(prompt.includes('"title"'));
 });
 
 
@@ -323,15 +327,101 @@ test('promptGemini successfully calls Gemini API and returns text', async () => 
     };
   };
 
+  let requestedHeaders = null;
+
+  globalThis.fetch = async (url, options) => {
+    requestedUrl = url;
+    requestedHeaders = options.headers;
+    requestedBody = JSON.parse(options.body);
+    return {
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: '{"occupation": "נגר", "birthPlace": "תל אביב"}' }
+              ]
+            }
+          }
+        ]
+      })
+    };
+  };
+
   try {
     const response = await promptGemini('Test prompt', { apiKey: 'AIzaFakeKey' });
-    assert.ok(requestedUrl.includes('AIzaFakeKey'));
-    assert.ok(requestedUrl.includes('gemini-1.5-flash'));
+    assert.equal(requestedHeaders['x-goog-api-key'], 'AIzaFakeKey');
+    assert.ok(requestedUrl.includes('gemini-3.5-flash-lite'));
     assert.equal(requestedBody.generationConfig.responseMimeType, 'application/json');
     assert.equal(response, '{"occupation": "נגר", "birthPlace": "תל אביב"}');
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('validatePersonUpdates and applyPersonUpdatesToGedcom support alternateNames, events and attributes', () => {
+  const current = {
+    given: 'יעקב',
+    surname: 'כהן',
+    sex: 'M',
+    alternateNames: ['יענקל כהן']
+  };
+
+  const updates = {
+    alternateNames: ['יענקל כהן', 'Jack Cohen'],
+    burialDate: '10 MAY 2000',
+    burialPlace: 'הר הזיתים, ירושלים',
+    immigrationDate: '1948',
+    immigrationPlace: 'ישראל',
+    title: 'הרב',
+    religion: 'יהדות',
+    nationality: 'ישראלי',
+    idNumber: '123456789',
+    description: 'גבוה עם עיניים כחולות'
+  };
+
+  const valRes = validatePersonUpdates(updates, current);
+  assert.equal(valRes.valid, true);
+  assert.deepEqual(valRes.sanitized.alternateNames, ['יענקל כהן', 'Jack Cohen']);
+  assert.equal(valRes.sanitized.burialDate, '10 MAY 2000');
+  assert.equal(valRes.sanitized.burialPlace, 'הר הזיתים, ירושלים');
+  assert.equal(valRes.sanitized.immigrationDate, '1948');
+  assert.equal(valRes.sanitized.immigrationPlace, 'ישראל');
+  assert.equal(valRes.sanitized.title, 'הרב');
+  assert.equal(valRes.sanitized.religion, 'יהדות');
+  assert.equal(valRes.sanitized.nationality, 'ישראלי');
+  assert.equal(valRes.sanitized.idNumber, '123456789');
+  assert.equal(valRes.sanitized.description, 'גבוה עם עיניים כחולות');
+
+  const sampleGed = `0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME יעקב /כהן/
+2 GIVN יעקב
+2 SURN כהן
+1 NAME יענקל כהן
+2 TYPE aka
+1 SEX M
+0 TRLR`;
+
+  const updatedGed = applyPersonUpdatesToGedcom(sampleGed, '@I1@', valRes.sanitized);
+
+  // Check new alternate name added without duplicating existing one
+  assert.ok(updatedGed.includes('1 NAME Jack Cohen\n2 TYPE aka'));
+  const occ1 = (updatedGed.match(/NAME יענקל כהן/g) || []).length;
+  assert.equal(occ1, 1);
+
+  // Check event tags BURI and IMMI
+  assert.ok(updatedGed.includes('1 BURI\n2 DATE 10 MAY 2000\n2 PLAC הר הזיתים, ירושלים'));
+  assert.ok(updatedGed.includes('1 IMMI\n2 DATE 1948\n2 PLAC ישראל'));
+
+  // Check attributes
+  assert.ok(updatedGed.includes('1 TITL הרב'));
+  assert.ok(updatedGed.includes('1 RELI יהדות'));
+  assert.ok(updatedGed.includes('1 NATI ישראלי'));
+  assert.ok(updatedGed.includes('1 IDNO 123456789'));
+  assert.ok(updatedGed.includes('1 DSCR גבוה עם עיניים כחולות'));
 });
 
 test('analyzePersonTextWithAi prioritizes Gemini API when key is configured', async () => {
