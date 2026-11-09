@@ -32,7 +32,6 @@ export async function isWindowAiAvailable() {
   if (typeof window === 'undefined') return false;
 
   try {
-    // Check for Chrome Built-in Prompt API (window.ai.languageModel or window.model or ai.languageModel)
     if (window.ai?.languageModel) {
       if (typeof window.ai.languageModel.capabilities === 'function') {
         const capabilities = await window.ai.languageModel.capabilities();
@@ -134,9 +133,29 @@ Current person data in tree:
 ${JSON.stringify(currentInfo, null, 2)}
 
 User's input text to apply:
-"${freeText.trim()}"
+"${String(freeText || '').trim()}"
 
 Return ONLY the JSON object with the updated fields.`;
+}
+
+function normalizeAiText(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value.map((v) => normalizeAiText(v)).filter(Boolean).join('\n');
+  }
+  if (typeof value === 'object') {
+    if (typeof value.generated_text === 'string') return value.generated_text;
+    if (typeof value.text === 'string') return value.text;
+    if (typeof value.content === 'string') return value.content;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
 }
 
 /**
@@ -201,7 +220,7 @@ export async function analyzePersonTextWithAi(
     }
   }
 
-  // Log raw AI response to console
+  rawResponse = normalizeAiText(rawResponse);
   console.log(`[AI Editor] Raw response received (${usedProvider}):\n`, rawResponse);
 
   // Extract JSON from response
@@ -210,7 +229,6 @@ export async function analyzePersonTextWithAi(
   if (jsonBlockMatch) {
     jsonString = jsonBlockMatch[1].trim();
   } else {
-    // If there's leading/trailing text, extract from first { to last }
     const firstBrace = jsonString.indexOf('{');
     const lastBrace = jsonString.lastIndexOf('}');
     if (firstBrace >= 0 && lastBrace > firstBrace) {
@@ -237,7 +255,6 @@ export async function analyzePersonTextWithAi(
 
   console.log('[AI Editor] Parsed JSON from AI:', parsedJson);
 
-  // Validate according to strict schema
   const validation = validatePersonUpdates(parsedJson, {
     givenName: person.given,
     surname: person.surname,
@@ -251,7 +268,6 @@ export async function analyzePersonTextWithAi(
     notes: person.notes,
   });
 
-  // Log validation result & diff
   console.log('[AI Editor] Validation result:', validation.valid ? 'VALID' : 'INVALID');
   if (!validation.valid) {
     console.warn('[AI Editor] Validation errors:', validation.errors);
