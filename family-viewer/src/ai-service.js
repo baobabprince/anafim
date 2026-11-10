@@ -4,7 +4,7 @@
  * Chrome Prompt API (window.ai), and local browser model (Transformers.js ONNX/WASM).
  */
 
-import { validatePersonUpdates, formatToGedcomDate } from './gedcom-ai-editor.js';
+import { validatePersonUpdates, formatToGedcomDate, cleanAiUpdates } from './gedcom-ai-editor.js';
 import { isLocalAiAvailable, promptLocalAi, getLocalAiProgress } from './local-ai-provider.js';
 import { isOllamaAvailable, promptOllama, getOllamaModel } from './ollama-ai-provider.js';
 import {
@@ -298,6 +298,10 @@ export async function analyzePersonTextWithAi(
   }
 
   console.log('[AI Editor] Parsed JSON from AI:', parsedJson);
+
+  const { cleaned, dropped } = cleanAiUpdates(parsedJson);
+  if (dropped.length) console.warn('[AI Editor] Ignored empty/unknown fields:', dropped);
+  parsedJson = cleaned;
 
   const validation = validatePersonUpdates(parsedJson, {
     givenName: person.given,

@@ -104,6 +104,74 @@ export function formatToGedcomDate(input) {
   return str;
 }
 
+/** Fields the AI is allowed to return. */
+export const AI_ALLOWED_KEYS = new Set([
+  'givenName',
+  'surname',
+  'nickname',
+  'alternateNames',
+  'alternateName',
+  'sex',
+  'birthDate',
+  'birthPlace',
+  'deathDate',
+  'deathPlace',
+  'deathCause',
+  'burialDate',
+  'burialPlace',
+  'cremationDate',
+  'cremationPlace',
+  'immigrationDate',
+  'immigrationPlace',
+  'emigrationDate',
+  'emigrationPlace',
+  'naturalizationDate',
+  'naturalizationPlace',
+  'barMitzvahDate',
+  'barMitzvahPlace',
+  'batMitzvahDate',
+  'batMitzvahPlace',
+  'baptismDate',
+  'baptismPlace',
+  'graduationDate',
+  'graduationPlace',
+  'retirementDate',
+  'retirementPlace',
+  'occupation',
+  'education',
+  'residencePlace',
+  'residenceDate',
+  'title',
+  'religion',
+  'nationality',
+  'description',
+  'idNumber',
+  'notes',
+  'source'
+  ]);
+
+/**
+ * Cleans raw AI output before validation: small models often return empty
+ * strings for fields the user never mentioned (which would wipe existing data
+ * in the diff) or invent extra keys such as "name". Both are dropped.
+ */
+export function cleanAiUpdates(updates) {
+  if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+    return { cleaned: updates, dropped: [] };
+  }
+  const cleaned = {};
+  const dropped = [];
+  for (const [key, value] of Object.entries(updates)) {
+    const empty =
+      value == null ||
+      (typeof value === 'string' && !value.trim()) ||
+      (Array.isArray(value) && value.every((v) => !String(v ?? '').trim()));
+    if (!AI_ALLOWED_KEYS.has(key) || empty) dropped.push(key);
+    else cleaned[key] = value;
+  }
+  return { cleaned, dropped };
+}
+
 /**
  * Validates the schema of updates returned by window.ai.
  * Returns { valid: boolean, errors: string[], sanitized: object, diff: object }
@@ -119,50 +187,7 @@ export function validatePersonUpdates(updates, currentPerson = {}) {
     };
   }
 
-  const allowedKeys = new Set([
-    'givenName',
-    'surname',
-    'nickname',
-    'alternateNames',
-    'alternateName',
-    'sex',
-    'birthDate',
-    'birthPlace',
-    'deathDate',
-    'deathPlace',
-    'deathCause',
-    'burialDate',
-    'burialPlace',
-    'cremationDate',
-    'cremationPlace',
-    'immigrationDate',
-    'immigrationPlace',
-    'emigrationDate',
-    'emigrationPlace',
-    'naturalizationDate',
-    'naturalizationPlace',
-    'barMitzvahDate',
-    'barMitzvahPlace',
-    'batMitzvahDate',
-    'batMitzvahPlace',
-    'baptismDate',
-    'baptismPlace',
-    'graduationDate',
-    'graduationPlace',
-    'retirementDate',
-    'retirementPlace',
-    'occupation',
-    'education',
-    'residencePlace',
-    'residenceDate',
-    'title',
-    'religion',
-    'nationality',
-    'description',
-    'idNumber',
-    'notes',
-    'source'
-  ]);
+  const allowedKeys = AI_ALLOWED_KEYS;
 
   const unknownKeys = Object.keys(updates).filter(k => !allowedKeys.has(k));
   if (unknownKeys.length > 0) {

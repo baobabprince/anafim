@@ -478,3 +478,14 @@ test('analyzePersonTextWithAi prioritizes Gemini API when key is configured', as
     delete store.anafim_gemini_api_key;
   }
 });
+
+test('cleanAiUpdates drops empty values and unknown keys but keeps real data', async () => {
+  const { cleanAiUpdates, validatePersonUpdates } = await import('../src/gedcom-ai-editor.js');
+  const { cleaned, dropped } = cleanAiUpdates({
+    givenName: 'צבי', surname: 'בן זמרה', name: 'צבי בן זמרה', sex: 'M',
+    birthDate: '', birthPlace: '  ', notes: [], occupation: 'נגר',
+  });
+  assert.deepEqual(cleaned, { givenName: 'צבי', surname: 'בן זמרה', sex: 'M', occupation: 'נגר' });
+  assert.deepEqual(dropped.sort(), ['birthDate', 'birthPlace', 'name', 'notes']);
+  assert.equal(validatePersonUpdates(cleaned, {}).valid, true);
+});
