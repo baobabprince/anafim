@@ -1,0 +1,36 @@
+name: Restore App.jsx
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/restore-app-jsx.yml'
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore App.jsx from last good commit
+        run: |
+          set -euo pipefail
+          # Only run if still truncated
+          if ! grep -q 'FILE TRUNCATED\|PLACEHOLDER' family-viewer/src/App.jsx 2>/dev/null; then
+            if [ "$(wc -c < family-viewer/src/App.jsx)" -gt 10000 ]; then
+              echo "App.jsx already looks restored; skipping"
+              exit 0
+            fi
+          fi
+          git checkout 0ef665cf -- family-viewer/src/App.jsx
+          # Apply mobile fix: do not treat side menu as a blocking modal for cloud load
+          sed -i 's/isModalOpen={!!modal||mobileMenu}/isModalOpen={!!modal}/g' family-viewer/src/App.jsx
+          git config user.name "baobabprince"
+          git config user.email "46530629+baobabprince@users.noreply.github.com"
+          git add family-viewer/src/App.jsx
+          git commit -m "fix: restore full App.jsx after accidental truncation
+
+Restored from 0ef665cf; isModalOpen={!!modal} so mobile side menu does not block cloud vault load."
+          git push
