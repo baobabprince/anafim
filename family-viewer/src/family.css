@@ -188,6 +188,10 @@ button.fx-canvas-caption{min-height:30px;padding:3px 9px;border-radius:5px}butto
 .fx-path-results small{flex:0 0 auto;color:#74806d;font-size:9px}
 .fx-path-results>span{padding:9px;color:#777763;font-size:11px}
 .fx-path-empty{margin:0;padding:16px 18px 20px;color:#707969;text-align:center;font-size:12px}
+.fx-path-summary{display:flex;align-items:center;justify-content:center;gap:8px;width:max-content;max-width:calc(100% - 36px);margin:0 auto 8px;padding:8px 14px;border:1px solid #dce7d4;border-radius:999px;background:#edf4e8;color:#405b43}
+.fx-path-summary svg{flex:0 0 auto}
+.fx-path-summary strong{font-size:20px;line-height:1;font-variant-numeric:tabular-nums}
+.fx-path-summary span{font-size:12px;font-weight:600}
 .fx-path-result{display:flex;flex-direction:column;align-items:stretch;gap:0;margin:0;padding:4px 18px 20px;list-style:none}
 .fx-path-result li{display:flex;flex-direction:column;align-items:center}
 .fx-path-person{display:flex;align-items:center;gap:9px;width:min(100%,390px);padding:9px 12px;border:1px solid #e2e8dd;border-radius:10px;background:#fff;color:#35473b;text-align:start;cursor:pointer}
@@ -196,5 +200,5 @@ button.fx-canvas-caption{min-height:30px;padding:3px 9px;border-radius:5px}butto
 .fx-path-person>small{color:#7a806f;font-size:10px}
 .fx-path-connection{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 0;color:#6b7b62}
 .fx-path-connection>span{width:1px;height:12px;background:#a9bc9c}
-.fx-path-connection small{font-size:10px}
+.fx-path-connection small{max-width:min(360px,calc(100vw - 72px));padding:4px 9px;border-radius:999px;background:#f0f3eb;color:#506348;font-size:10px;text-align:center}
 @media(max-width:600px){.fx-path-backdrop{padding:10px}.fx-path-dialog{max-height:calc(100dvh - 20px);border-radius:12px}.fx-path-heading{padding:12px}.fx-path-heading h2{font-size:16px}.fx-path-pickers{grid-template-columns:1fr;gap:12px;padding:12px}.fx-path-result{padding:4px 12px 14px}}

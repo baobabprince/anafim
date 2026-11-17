@@ -226,20 +226,28 @@ function RelationshipPathDialog({ data, currentPerson, onClose, onSelect }) {
           <PersonPicker data={data} id="start" label={t('fx.pathFrom')} value={startId} initialPerson={currentPerson} onChange={setStartId}/>
           <PersonPicker data={data} id="end" label={t('fx.pathTo')} value={endId} onChange={setEndId}/>
         </div>
-        {startId && endId ? path ? <ol className="fx-path-result" aria-label={t('fx.pathResult')}>
-          {path.map((step, index) => {
-            const personInPath = data.people[step.id];
-            const relationLabel = step.relationship === 'parent' ? 'fx.pathParentOf' : step.relationship === 'child' ? 'fx.pathChildOf' : 'fx.pathPartnerOf';
-            return <li key={step.id}>
-              {index > 0 && <div className="fx-path-connection"><span aria-hidden="true"/><small>{t(relationLabel)}</small></div>}
-              <button type="button" className="fx-path-person" onClick={() => { onClose(); onSelect(step.id); }}>
-                <Portrait person={personInPath} size="small"/>
-                <strong dir="auto">{personInPath.name}</strong>
-                <small>{lifeLabel(personInPath)}</small>
-              </button>
-            </li>;
-          })}
-        </ol> : <p className="fx-path-empty">{t('fx.pathNotFound')}</p> : <p className="fx-path-empty">{t('fx.pathChoosePeople')}</p>}
+        {startId && endId ? path ? <>
+          <div className="fx-path-summary" aria-live="polite">
+            <Route size={17}/>
+            <strong>{count(path.length - 1)}</strong>
+            <span>{t(path.length === 2 ? 'fx.pathOneStep' : 'fx.pathManySteps')}</span>
+          </div>
+          <ol className="fx-path-result" aria-label={t('fx.pathResult')}>
+            {path.map((step, index) => {
+              const personInPath = data.people[step.id];
+              const previousPerson = index > 0 ? data.people[path[index - 1].id] : null;
+              const relationLabel = step.relationship === 'parent' ? 'fx.pathChildOf' : step.relationship === 'child' ? 'fx.pathParentOf' : 'fx.pathPartnerOf';
+              return <li key={step.id}>
+                {previousPerson && <div className="fx-path-connection"><span aria-hidden="true"/><small>{t(relationLabel, { name: personInPath.name })}</small></div>}
+                <button type="button" className="fx-path-person" onClick={() => { onClose(); onSelect(step.id); }}>
+                  <Portrait person={personInPath} size="small"/>
+                  <strong dir="auto">{personInPath.name}</strong>
+                  <small>{lifeLabel(personInPath)}</small>
+                </button>
+              </li>;
+            })}
+          </ol>
+        </> : <p className="fx-path-empty">{t('fx.pathNotFound')}</p> : <p className="fx-path-empty">{t('fx.pathChoosePeople')}</p>}
       </section>
     </div>,
     document.body,
