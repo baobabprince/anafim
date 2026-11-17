@@ -1,15 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Network, UsersRound, Upload, Search, ChevronDown, ChevronLeft, ChevronRight, ArrowUpLeft, FileText, ShieldCheck, X, Menu, MapPin, CalendarDays, BriefcaseBusiness, Heart, GitFork, HelpCircle, Printer, Download, Share2, Mail, Check, AlertTriangle, LoaderCircle, Home, Layers3, Leaf, Sprout, LockKeyhole, Info, RotateCcw, Baby, Flower2, CornerDownLeft, MousePointer2, ArrowRight, ArrowLeft, Clock3, Wrench } from 'lucide-react';
+import { Network, UsersRound, Upload, Search, ChevronDown, ChevronLeft, ChevronRight, ArrowUpLeft, FileText, ShieldCheck, X, Menu, MapPin, CalendarDays, BriefcaseBusiness, Heart, GitFork, HelpCircle, Printer, Download, Share2, Mail, Check, AlertTriangle, LoaderCircle, Home, Layers3, Leaf, Sprout, LockKeyhole, Info, RotateCcw, Baby, Flower2, CornerDownLeft, MousePointer2, ArrowRight, ArrowLeft, Clock3, Wrench, ImagePlus } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import FamilyView from './FamilyExperience.jsx';
 import CloudAccess from './CloudAccess.jsx';
 import { DEMO_TEXT, DEMO_ROOT } from './demo.js';
+import { DEMO_PHOTOS } from './demo-photos.js';
 import { importGedcomFile, MAX_FILE_BYTES } from './import-gedcom.js';
 import { saveSharedExport, loadSharedExport, hasSharedExport, formatSharedSummary } from './baobab-shared-storage.js';
 import { parseGedcom, parseGedcomAsync, getRelations, formatDate, lifeLabel, initials, normalize, getYear, pedigreeLabel } from './gedcom.js';
 import { isWindowAiAvailable } from './ai-service.js';
 import { useI18n } from './i18n/I18nContext.jsx';
 import LangToggle from './i18n/LangToggle.jsx';
+import { PersonPhotoContext, usePersonPhoto } from './PersonPhotoContext.jsx';
+import { addPersonPhotos, deleteBundlePhotos, deletePersonPhoto, getPersonPhotos, resolveGedcomPhotos, savePersonPhotos, validatePhotoFile } from './photo-storage.js';
 
 const STORAGE_FILES_KEY = 'anafim-saved-files-v1';
 const STORAGE_ACTIVE_ID_KEY = 'anafim-active-file-id-v1';
@@ -58,6 +61,7 @@ function loadFromBaobabShared(onImport) {
 
 const OLD_CACHE_KEY = 'anafim-gedcom-v1';
 const APP_VERSION = '2.0.1';
+const createFileId = () => `file-${Date.now()}-${globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)}`;
 
 function getUrlDeepLink() {
   try {
@@ -94,7 +98,7 @@ function findPersonIdFromDeepLink(data, { id, q }) {
 const number = n => n.toLocaleString((typeof document !== 'undefined' && document.documentElement.lang === 'en') ? 'en-GB' : 'he-IL');
 
 function demoBundle() {
-  return { id:'demo', data:parseGedcom(DEMO_TEXT), raw:DEMO_TEXT, filename:'משפחת-לוין.ged', encoding:'utf-8', isDemo:true, remembered:false };
+  return { id:'demo', data:parseGedcom(DEMO_TEXT), raw:DEMO_TEXT, filename:'משפחת-לוין.ged', encoding:'utf-8', isDemo:true, remembered:false, photos:DEMO_PHOTOS };
 }
 
 export function getSavedFilesList() {
@@ -211,7 +215,8 @@ function Brand({ compact = false }) {
 }
 function Avatar({ person, size = 'md', className = '' }) {
   const tone = person?.sex === 'F' ? 'clay' : person?.sex === 'M' ? 'sage' : 'sand';
-  return <span className={`avatar avatar-${size} avatar-${tone} ${className}`} aria-hidden="true">{initials(person)}</span>;
+  const photoUrl = usePersonPhoto(person?.id);
+  return <span className={`avatar avatar-${size} avatar-${tone} ${className}`} aria-hidden="true">{photoUrl ? <img src={photoUrl} alt=""/> : initials(person)}</span>;
 }
 function MiniTree() {
   return <svg className="mini-tree" viewBox="0 0 170 110" fill="none" aria-hidden="true"><path d="M85 102V55M85 78 55 49M85 63l28-28M55 49V27M112 35V18M55 39 36 25" stroke="#789084" strokeWidth="1.5" strokeLinecap="round"/><path d="M49 30C32 28 36 11 36 11s18 3 17 17M58 51c-1-16 15-20 15-20s4 18-12 22M112 35c-3-17 13-24 13-24s7 18-10 26M82 63C66 56 72 39 72 39s20 8 13 24M88 79c1-18 21-20 21-20s1 20-19 22" fill="#c3d0c2"/><circle cx="36" cy="24" r="4" fill="#b57d5d"/><circle cx="56" cy="18" r="5" fill="#b57d5d"/><circle cx="113" cy="12" r="4" fill="#b57d5d"/><path d="M64 103h42" stroke="#a6b4a3" strokeLinecap="round"/></svg>;
@@ -229,7 +234,7 @@ function Dialog({title, subtitle, children, onClose, className = '' }) {
     const handleKey = e => {
       if (e.key === 'Escape') { e.preventDefault(); onCloseRef.current(); }
       if (e.key === 'Tab') {
-        const list = [...ref.current.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')].filter(el => el.offsetParent !== null);
+        const list = [...ref.current.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), summary, a[href], [tabindex="0"]')].filter(el => el.offsetParent !== null);
         if (!list.length) { e.preventDefault(); return; }
         const first = list[0], last = list.at(-1);
         if (e.shiftKey && (document.activeElement === first || !ref.current.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
@@ -245,19 +250,75 @@ function Dialog({title, subtitle, children, onClose, className = '' }) {
 
 function UploadDialog({ onClose, onImport, onDemo }) {
   const { t } = useI18n();
-  const [file, setFile] = useState(null), [encoding, setEncoding] = useState('auto'), [remember, setRemember] = useState(true), [error, setError] = useState(''), [dragging, setDragging] = useState(false), [busy, setBusy] = useState(false), [progress, setProgress] = useState(0), [phase, setPhase] = useState('reading');
-  const inputRef = useRef(null), abortRef = useRef(null);
+  const [file, setFile] = useState(null), [mediaFiles, setMediaFiles] = useState([]), [preparedImport, setPreparedImport] = useState(null), [encoding, setEncoding] = useState('auto'), [remember, setRemember] = useState(true), [error, setError] = useState(''), [dragging, setDragging] = useState(false), [busy, setBusy] = useState(false), [progress, setProgress] = useState(0), [phase, setPhase] = useState('reading');
+  const inputRef = useRef(null), mediaInputRef = useRef(null), abortRef = useRef(null);
   useEffect(() => () => { abortRef.current?.abort(); }, []);
-  const pickFile = f => {
+  const pickFiles = fileList => {
     setError('');
-    if (!f) return;
-    if (/\.pdf$/i.test(f.name)) { setError({ message:'זהו קובץ PDF. יש לבחור קובץ GEDCOM בסיומת ‎.ged או ‎.gedcom.', code:'PDF_NOT_GEDCOM' }); setFile(null); return; }
-    if (f.size > MAX_FILE_BYTES) { setError({ message:'הקובץ גדול מ־30MB. נסו לייצא אילן מצומצם יותר מתוכנת המקור.', code:'FILE_TOO_LARGE' }); setFile(null); return; }
-    if (!f.size) { setError({ message:'הקובץ שבחרתם ריק.', code:'EMPTY_FILE' }); setFile(null); return; }
+    setPreparedImport(null);
+    const selected = [...(fileList || [])];
+    if (!selected.length) return;
+    if (selected.length === 1 && /\.pdf$/i.test(selected[0].name)) {
+      setError({ message:'זהו קובץ PDF. יש לבחור קובץ GEDCOM בסיומת ‎.ged או ‎.gedcom.', code:'PDF_NOT_GEDCOM' });
+      setFile(null); setMediaFiles([]);
+      return;
+    }
+    const gedcomFiles = selected.filter(f => /\.(ged|gedcom|txt)$/i.test(f.name));
+    if (gedcomFiles.length !== 1) {
+      setError({ message:'יש לבחור קובץ GEDCOM אחד, ואפשר לצרף אליו קובצי תמונה.', code:'INVALID_FILE_SELECTION' });
+      setFile(null); setMediaFiles([]);
+      return;
+    }
+    const f = gedcomFiles[0];
+    if (/\.pdf$/i.test(f.name)) { setError({ message:'זהו קובץ PDF. יש לבחור קובץ GEDCOM בסיומת ‎.ged או ‎.gedcom.', code:'PDF_NOT_GEDCOM' }); setFile(null); setMediaFiles([]); return; }
+    if (f.size > MAX_FILE_BYTES) { setError({ message:'הקובץ גדול מ־30MB. נסו לייצא אילן מצומצם יותר מתוכנת המקור.', code:'FILE_TOO_LARGE' }); setFile(null); setMediaFiles([]); return; }
+    if (!f.size) { setError({ message:'הקובץ שבחרתם ריק.', code:'EMPTY_FILE' }); setFile(null); setMediaFiles([]); return; }
+    const images = selected.filter(item => item !== f);
+    try {
+      for (const image of images) validatePhotoFile(image);
+    } catch (validationError) {
+      setError({ message:validationError.message, code:'INVALID_IMAGE' });
+      setFile(null); setMediaFiles([]);
+      return;
+    }
     setFile(f);
+    setMediaFiles(images);
+  };
+  const addMediaFiles = fileList => {
+    setError('');
+    setPreparedImport(null);
+    const selected = [...(fileList || [])];
+    if (!selected.length) return;
+    try {
+      for (const image of selected) validatePhotoFile(image);
+    } catch (validationError) {
+      setError({ message:validationError.message, code:'INVALID_IMAGE' });
+      return;
+    }
+    setMediaFiles(current => {
+      const existing = new Set(current.map(image => `${image.name}:${image.size}:${image.lastModified}`));
+      return [...current, ...selected.filter(image => {
+        const key = `${image.name}:${image.size}:${image.lastModified}`;
+        if (existing.has(key)) return false;
+        existing.add(key);
+        return true;
+      })];
+    });
   };
   const importFile = async () => {
     if (!file || busy) return;
+    if (preparedImport) {
+      setBusy(true); setError('');
+      const imported = { ...preparedImport, remembered:remember };
+      try {
+        await onImport(imported);
+        pushToBaobabShared(imported);
+      } catch (error) {
+        setBusy(false);
+        setError({ message:error.message || 'לא הצלחנו לפתוח את האילן.', code:error.code || 'IMPORT_FAILED' });
+      }
+      return;
+    }
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -271,9 +332,16 @@ function UploadDialog({ onClose, onImport, onDemo }) {
         workerFactory: () => new Worker(new URL('./gedcom.worker.js', import.meta.url), { type:'module' }),
       });
       if (!controller.signal.aborted) {
-        const imported = { ...result, filename:file.name, isDemo:false, remembered:remember, importedAt:new Date().toISOString() };
-        onImport(imported);
-        pushToBaobabShared(imported);
+        const media = resolveGedcomPhotos(result.data, mediaFiles);
+        const imported = { ...result, photos:media.photos, mediaStats:{ matched:media.matched, unmatched:media.unmatched }, id:createFileId(), filename:file.name, isDemo:false, remembered:remember, importedAt:new Date().toISOString() };
+        if (mediaFiles.length) {
+          setPreparedImport(imported);
+          setProgress(100);
+          setBusy(false);
+        } else {
+          await onImport(imported);
+          pushToBaobabShared(imported);
+        }
       }
     } catch (error) {
       if (controller.signal.aborted || error.name === 'AbortError') return;
@@ -288,26 +356,66 @@ function UploadDialog({ onClose, onImport, onDemo }) {
     compatibility:t('upload.compat'),
   };
   return <Dialog title={t('upload.title')} subtitle={t('upload.subtitle')} onClose={onClose} className="upload-dialog">
-    <div className={`drop-zone ${dragging ? 'is-dragging' : ''} ${file ? 'has-file' : ''}`} onDragOver={e => { e.preventDefault(); if (!busy) setDragging(true); }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }} onDrop={e => { e.preventDefault(); setDragging(false); if (!busy) pickFile(e.dataTransfer.files[0]); }}>
-      <span className="drop-icon">{file ? <FileText size={28}/> : <Upload size={28}/>}</span>
-      {file ? <><strong dir="auto">{file.name}</strong><span>{number(Math.max(1, Math.round(file.size / 1024)))} KB · מוכן לפתיחה</span></> : <><strong>{t('upload.drag')}</strong><span>{t('upload.dragHint')}</span></>}
-      <button className="button button-white button-small" disabled={busy} onClick={() => inputRef.current?.click()}>{file ? t('upload.chooseOther') : t('upload.choose')}<ChevronLeft size={15}/></button>
-      <input ref={inputRef} type="file" accept=".ged,.gedcom,.txt,application/x-gedcom,text/plain,application/octet-stream" aria-label="בחירת קובץ GEDCOM" onChange={e => pickFile(e.target.files[0])} className="visually-hidden" disabled={busy}/>
+    <div className="upload-step">
+      <div className="upload-step-heading"><span>1</span><div><h3>{t('upload.fileStep')}</h3><p>{t('upload.fileStepHint')}</p></div></div>
+      <div
+        className={`drop-zone ${dragging ? 'is-dragging' : ''} ${file ? 'has-file' : ''}`}
+        onDragOver={event => { event.preventDefault(); if (!busy) setDragging(true); }}
+        onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false); }}
+        onDrop={event => { event.preventDefault(); setDragging(false); if (!busy) pickFiles(event.dataTransfer.files); }}
+      >
+        <span className="drop-icon">{file ? <FileText size={24}/> : <Upload size={24}/>}</span>
+        <div className="upload-file-copy">
+          {file
+            ? <><strong dir="auto">{file.name}</strong><span>{number(Math.max(1, Math.round(file.size / 1024)))} KB · {t('upload.fileReady')}</span></>
+            : <><strong>{t('upload.drag')}</strong><span>{t('upload.dragHint')}</span></>}
+        </div>
+        <button type="button" className="button button-white button-small" disabled={busy} onClick={() => inputRef.current?.click()}>
+          {file ? t('upload.chooseOther') : t('upload.choose')}<ChevronLeft size={15}/>
+        </button>
+        <input ref={inputRef} type="file" multiple accept=".ged,.gedcom,.txt,.jpg,.jpeg,.png,.gif,.webp,.avif,.bmp,image/jpeg,image/png,image/gif,image/webp,image/avif,image/bmp,application/x-gedcom,text/plain,application/octet-stream" aria-label="בחירת קובץ GEDCOM" onChange={event => { pickFiles(event.target.files); event.target.value = ''; }} className="visually-hidden" disabled={busy}/>
+      </div>
     </div>
-    <div className="encoding-field"><label htmlFor="encoding">{t('upload.encoding')}</label><select id="encoding" value={encoding} onChange={e => setEncoding(e.target.value)} disabled={busy}><option value="auto">{t('upload.encodingAuto')}</option><option value="utf-8">UTF-8</option><option value="windows-1255">{t('upload.encodingHe')}</option><option value="utf-16le">UTF-16 LE</option><option value="utf-16be">UTF-16 BE</option><option value="ansel">ANSEL</option><option value="windows-1252">Windows-1252</option></select><span>{t('upload.encodingHint')}</span></div>
-    <label className="checkbox-label"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} disabled={busy}/><span>{t('upload.remember')}<span className="field-hint">ברירת מחדל: שמירה במכשיר זה. במכשיר משותף מומלץ לכבות. אפשר למחוק מפרטי הקובץ.</span></span></label>
+    <div className="upload-step upload-media-step">
+      <div className="upload-step-heading"><span>2</span><div><h3>{t('upload.photosStep')} <small>{t('upload.optional')}</small></h3><p>{t('upload.photosStepHint')}</p></div></div>
+      <div className="upload-media-picker">
+        <button type="button" className="button button-white button-small" disabled={!file || busy} onClick={() => mediaInputRef.current?.click()}>
+          <ImagePlus size={15}/>{t('upload.addPhotos')}
+        </button>
+        <span>{t('upload.imageHint')}</span>
+        <input ref={mediaInputRef} type="file" multiple accept=".jpg,.jpeg,.png,.gif,.webp,.avif,.bmp,image/jpeg,image/png,image/gif,image/webp,image/avif,image/bmp" aria-label={t('upload.addPhotos')} onChange={event => { addMediaFiles(event.target.files); event.target.value = ''; }} className="visually-hidden" disabled={!file || busy}/>
+      </div>
+      {!!mediaFiles.length && <ul className="upload-media-list" aria-label={t('upload.photosSelected', { n:number(mediaFiles.length) })}>
+        {mediaFiles.map((image,index)=><li key={`${image.name}:${image.size}:${image.lastModified}:${index}`}><ImagePlus size={14}/><span dir="auto">{image.name}</span><button type="button" className="icon-button" disabled={busy} aria-label={t('upload.removePhoto', { name:image.name })} onClick={()=>{setPreparedImport(null);setMediaFiles(current=>current.filter((_,itemIndex)=>itemIndex!==index));}}><X size={14}/></button></li>)}
+      </ul>}
+      {preparedImport && <div className="upload-match-summary" role="status">
+        <strong>{t('upload.matchTitle')}</strong>
+        <span>{t('upload.matchCount', { n:number(preparedImport.mediaStats.matched) })}</span>
+        {!!preparedImport.mediaStats.unmatched && <span className="upload-match-warning">{t('upload.unmatchedCount', { n:number(preparedImport.mediaStats.unmatched) })}</span>}
+        {!preparedImport.mediaStats.matched && !preparedImport.mediaStats.unmatched && <span>{t('upload.noLinkedPhotos')}</span>}
+        <small>{t('upload.matchHint')}</small>
+      </div>}
+    </div>
+    <details className="upload-advanced">
+      <summary>{t('upload.advanced')}</summary>
+      <div className="encoding-field"><label htmlFor="encoding">{t('upload.encoding')}</label><select id="encoding" value={encoding} onChange={event => { setEncoding(event.target.value); setPreparedImport(null); }} disabled={busy}><option value="auto">{t('upload.encodingAuto')}</option><option value="utf-8">UTF-8</option><option value="windows-1255">{t('upload.encodingHe')}</option><option value="utf-16le">UTF-16 LE</option><option value="utf-16be">UTF-16 BE</option><option value="ansel">ANSEL</option><option value="windows-1252">Windows-1252</option></select><span>{t('upload.encodingHint')}</span></div>
+    </details>
+    <div className="upload-save-option">
+      <label className="checkbox-label"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} disabled={busy}/><span><strong>{t('upload.remember')}</strong><span className="field-hint">{remember ? t('upload.rememberHint') : t('upload.sessionOnly')}</span></span></label>
+      <div className="import-privacy"><ShieldCheck size={15}/><span>{t('upload.privacy')}</span></div>
+    </div>
     {error && <div className="error-message" role="alert"><AlertTriangle size={18}/><span>{typeof error === 'string' ? error : error.message}{error.code && <small className="import-error-code">קוד שגיאה: <bdi>{error.code}</bdi></small>}</span></div>}
     {busy && <div className="import-progress" role="status"><div><span>{phaseLabels[phase]}</span><span>{progress}%</span></div><progress value={progress} max="100"/></div>}
-    <div className="baobab-shared-box" style={{margin:'12px 0',padding:'12px',border:'1px solid #e7e8e0',borderRadius:'12px',background:'#fefefb'}}>
-      <div style={{fontSize:'12px',fontWeight:600,color:'#456352',marginBottom:6}}>{t('upload.shareTitle')}</div>
-      <div style={{fontSize:11,color:'#82877e',marginBottom:8}}>{formatSharedSummary(loadSharedExport()) || 'אין נתונים משותפים עדיין'}</div>
-      <button type="button" className="button button-small button-full" style={{marginBottom:8}} disabled={!hasSharedExport() || busy} onClick={() => { const b = loadFromBaobabShared(onImport); if (b) { try { onClose(); } catch (_) {} } }}>
+    {hasSharedExport() && <details className="upload-shared">
+      <summary>{t('upload.shareTitle')}<span>{formatSharedSummary(loadSharedExport())}</span></summary>
+      <button type="button" className="button button-white button-small button-full" disabled={busy} onClick={async () => { const shared = loadFromBaobabShared(onImport); if (shared) await onClose(); }}>
         {t('upload.loadShared')}
       </button>
-    </div>
-    <button className="button button-primary button-full" onClick={importFile} disabled={!file || busy}>{busy ? <LoaderCircle className="spin" size={19}/> : <Network size={19}/>}<span>{busy ? phaseLabels[phase] : t('upload.openTree')}</span>{!busy && <ArrowLeft size={17}/>}</button>
-    <div className="import-privacy"><ShieldCheck size={16}/><span>{t('upload.privacy')}</span></div>
-    {!busy && <button className="text-button demo-link" onClick={onDemo}>{t('upload.demo')}<ChevronLeft size={14}/></button>}
+    </details>}
+    <button type="button" className="button button-primary button-full upload-submit" onClick={importFile} disabled={!file || busy}>
+      {busy ? <LoaderCircle className="spin" size={19}/> : <Network size={18}/>}<span>{busy ? phaseLabels[phase] : preparedImport || !mediaFiles.length ? t('upload.openTree') : t('upload.checkPhotos')}</span>{!busy && <ArrowLeft size={17}/>}
+    </button>
+    {!busy && <button type="button" className="text-button demo-link" onClick={onDemo}>{t('upload.demo')}<ChevronLeft size={14}/></button>}
   </Dialog>;
 }
 
@@ -856,12 +964,20 @@ export default function App() {
   const { t, lang } = useI18n();
   const viewNames = { family: t('nav.family'), people: t('nav.people'), file: t('nav.file') };
   const [bundle,setBundle] = useState(initialBundle);
+  const [photoRevision,setPhotoRevision] = useState(0);
   const [history,setHistory] = useState(() => ({ ids:[bundle.isDemo ? DEMO_ROOT : bundle.data.order[0]], cursor:0 }));
   const [view,setView] = useState('family'), [query,setQuery] = useState(''), [modal,setModal] = useState(() => getSavedFilesList().length === 0 ? 'upload' : null), [mobileMenu,setMobileMenu] = useState(false), [parentFamily,setParentFamily] = useState(''), [toast,setToast] = useState(''), [installPrompt,setInstallPrompt] = useState(null);
   const [undoStack, setUndoStack] = useState([]);
   const [aiSupported, setAiSupported] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const menuRef = useRef(null);
+  const photoContext = useMemo(() => ({
+    bundleId:bundle.id,
+    remembered:bundle.remembered,
+    photos:bundle.photos,
+    revision:photoRevision,
+    onPhotoError:error=>setToast(`לא ניתן לטעון תמונה מהאחסון המקומי. ${error.message}`),
+  }), [bundle.id, bundle.remembered, bundle.photos, photoRevision]);
 
   useEffect(() => {
     // AI editing is supported across all browsers via Gemini API, window.ai, or local model
@@ -980,28 +1096,48 @@ export default function App() {
   const changeView = value => { setView(value); setMobileMenu(false); if (value !== 'people') setQuery(''); window.scrollTo({ top:0, behavior:'instant' }); };
   const goHistory = delta => { setHistory(h => ({ ...h, cursor:Math.min(Math.max(h.cursor + delta,0),h.ids.length - 1) })); setParentFamily(''); scrollToFamily(); };
   const resetSelection = () => { selectPerson(bundle.isDemo ? DEMO_ROOT : bundle.data.order[0]); setToast('חזרנו לאדם הראשון באילן'); };
-  const loadBundle = next => {
+  const loadBundle = async next => {
     const result = { ...next }; delete result.type;
+    let photosSavedError = '';
+    let bundleSavedError = '';
     if (next.isDemo) {
       setActiveFileIdInStorage(null);
       result.id = 'demo';
     } else if (next.remembered) {
       const savedItem = saveFileToLocalStorage(next);
-      pushToBaobabShared(next);
       if (savedItem) {
         result.id = savedItem.id;
         result.remembered = true;
+        const photos = Object.entries(result.photos || {});
+        if (photos.length) {
+          try {
+            await Promise.all(photos.map(([personId, personPhotos]) => savePersonPhotos(result.id, personId, personPhotos)));
+            delete result.photos;
+          } catch (error) {
+            console.error('Failed to save imported family photos:', error);
+            try { await deleteBundlePhotos(result.id); } catch (cleanupError) { console.error('Failed to clean up partial family photo import:', cleanupError); }
+            photosSavedError = `האילן נשמר, אך לא ניתן לשמור את התמונות. הן זמינות עד סגירת העמוד. ${error.message}`;
+          }
+        }
       } else {
         result.remembered = false;
-        setToast('הקובץ נפתח, אך לא ניתן לשמור אותו בדפדפן (זיכרון מלא). הוא זמין למפגש הנוכחי.');
+        bundleSavedError = 'הקובץ נפתח, אך לא ניתן לשמור אותו בדפדפן (זיכרון מלא). הוא זמין למפגש הנוכחי.';
       }
     } else if (result.id) {
       setActiveFileIdInStorage(result.id);
     }
+    if (photosSavedError) result.photosSavedError = photosSavedError;
     setBundle(result); setHistory({ ids:[result.isDemo ? DEMO_ROOT : result.data.order[0]], cursor:0 }); setQuery(''); setParentFamily(''); setView('family'); setModal(null); setMobileMenu(false); window.scrollTo({top:0,behavior:'instant'});
-    if (result.data.warnings.length) setToast(`האילן נפתח עם ${number(result.data.warnings.length)} הערות. אפשר לעיין בהן בפרטי הקובץ.`);
-    else if (!(next.remembered && !result.remembered)) if (!result.isDemo) pushToBaobabShared(result);
-    setToast(result.isDemo ? 'נעים להכיר את משפחת לוין. כל הפרטים בדויים.' : `ברוכים הבאים! ${number(result.data.stats.people)} אנשים מחכים לכם באילן.`);
+    setPhotoRevision(revision => revision + 1);
+    if (result.photosSavedError) setToast(result.photosSavedError);
+    else if (bundleSavedError) setToast(bundleSavedError);
+    else if (result.mediaStats?.unmatched) setToast(`האילן נפתח. ${number(result.mediaStats.matched)} תמונות שויכו; ${number(result.mediaStats.unmatched)} תמונות מקושרות לא נמצאו בין הקבצים שנבחרו.`);
+    else if (result.mediaStats?.matched) setToast(`האילן נפתח עם ${number(result.mediaStats.matched)} תמונות מקושרות.`);
+    else if (result.data.warnings.length) setToast(`האילן נפתח עם ${number(result.data.warnings.length)} הערות. אפשר לעיין בהן בפרטי הקובץ.`);
+    else {
+      setToast(result.isDemo ? 'נעים להכיר את משפחת לוין. כל הפרטים בדויים.' : `ברוכים הבאים! ${number(result.data.stats.people)} אנשים מחכים לכם באילן.`);
+    }
+    if (!(next.remembered && !result.remembered) && !result.isDemo) pushToBaobabShared(result);
   };
 
   const loadSavedFile = (fileItem) => {
@@ -1018,6 +1154,66 @@ export default function App() {
       remembered: true
     });
   };
+  const setPersonPhotos = async (personId, files) => {
+    try {
+      files.forEach(validatePhotoFile);
+      if (!files.length) return;
+      if (bundle.remembered) {
+        try {
+          const temporary = bundle.photos?.[personId];
+          const pendingPhotos = temporary ? Array.isArray(temporary) ? temporary : [temporary] : [];
+          await addPersonPhotos(bundle.id, personId, [...pendingPhotos, ...files]);
+          setBundle(current => {
+            const photos = { ...(current.photos || {}) };
+            delete photos[personId];
+            return { ...current, photos };
+          });
+          setToast('התמונות נשמרו במכשיר.');
+        } catch (error) {
+          console.error('Failed to save family photos:', error);
+          setBundle(current => {
+            const photos = { ...(current.photos || {}) };
+            const currentPhotos = photos[personId] ? Array.isArray(photos[personId]) ? photos[personId] : [photos[personId]] : [];
+            photos[personId] = [...currentPhotos, ...files];
+            return { ...current, photos };
+          });
+          setToast(`לא ניתן לשמור את התמונות באחסון המקומי. הן זמינות עד סגירת העמוד. ${error.message}`);
+        }
+      } else {
+        setBundle(current => {
+          const photos = { ...(current.photos || {}) };
+          const currentPhotos = photos[personId] ? Array.isArray(photos[personId]) ? photos[personId] : [photos[personId]] : [];
+          photos[personId] = [...currentPhotos, ...files];
+          return { ...current, photos };
+        });
+        setToast('התמונות נוספו למפגש הנוכחי בלבד.');
+      }
+      setPhotoRevision(revision => revision + 1);
+    } catch (error) {
+      setToast(error.message);
+    }
+  };
+  const removePersonPhoto = async (personId, photoIndex) => {
+    try {
+      const storedPhotos = bundle.remembered ? await getPersonPhotos(bundle.id, personId) : [];
+      if (photoIndex < storedPhotos.length) {
+        await deletePersonPhoto(bundle.id, personId, photoIndex);
+      }
+      setBundle(current => {
+        const photos = { ...(current.photos || {}) };
+        const temporaryPhotos = photos[personId] ? Array.isArray(photos[personId]) ? [...photos[personId]] : [photos[personId]] : [];
+        if (photoIndex >= storedPhotos.length) temporaryPhotos.splice(photoIndex - storedPhotos.length, 1);
+        if (temporaryPhotos.length) photos[personId] = temporaryPhotos;
+        else delete photos[personId];
+        return { ...current, photos };
+      });
+      setPhotoRevision(revision => revision + 1);
+      setToast('התמונה הוסרה מהמכשיר.');
+    } catch (error) {
+      console.error('Failed to remove family photo:', error);
+      setToast(`לא ניתן להסיר את התמונה מהמכשיר. ${error.message}`);
+    }
+  };
   const downloadGedcom = () => {
     let raw = bundle.raw;
     if (/^1 CHAR .*$/m.test(raw)) raw = raw.replace(/^1 CHAR .*$/m,'1 CHAR UTF-8');
@@ -1025,10 +1221,11 @@ export default function App() {
     const url = URL.createObjectURL(new Blob([raw],{type:'text/plain;charset=utf-8'}));
     const a = document.createElement('a'); a.href = url; a.download = bundle.filename.replace(/\.(gedcom|txt)$/i,'.ged'); if (!/\.ged$/i.test(a.download)) a.download += '.ged'; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
   };
-  const forget = (fileIdToForget) => {
+  const forget = async (fileIdToForget) => {
     try {
       const targetId = fileIdToForget || bundle.id;
       if (targetId && targetId !== 'demo') {
+        await deleteBundlePhotos(targetId);
         const remaining = removeFileFromLocalStorage(targetId);
         if (bundle.id === targetId) {
           if (remaining.length > 0) {
@@ -1053,7 +1250,7 @@ export default function App() {
         setBundle(b => ({...b, remembered: false}));
         setToast('העותק השמור נמחק מהמכשיר. האילן פתוח עד סגירת העמוד.');
       }
-    } catch { setToast('לא ניתן לגשת לאחסון הדפדפן.'); }
+    } catch (error) { console.error('Failed to remove saved family photos:', error); setToast(`לא ניתן למחוק את הקובץ או את תמונותיו מהמכשיר. ${error.message}`); }
   };
   const applyCloudSnapshot = async (snapshot,options={}) => {
     const allowed=()=>!options.shouldApply || options.shouldApply();
@@ -1074,6 +1271,7 @@ export default function App() {
   };
   const navItems = [{id:'family',icon:Network},{id:'people',icon:UsersRound},{id:'file',icon:FileText}];
   return (
+    <PersonPhotoContext.Provider value={photoContext}>
     <div className="app-shell">
       <a href="#main-content" className="skip-link">{lang==='he'?'דילוג לתוכן':'Skip to content'}</a>
       {mobileMenu && <div className="sidebar-backdrop" onClick={() => setMobileMenu(false)}/>}
@@ -1170,6 +1368,8 @@ export default function App() {
               onHelp={() => setModal('help')}
               onApplyUpdate={handleApplyAiUpdate}
               onUndoEdit={handleUndoEdit}
+              onSetPersonPhoto={setPersonPhotos}
+              onRemovePersonPhoto={removePersonPhoto}
               canUndo={undoStack.length > 0}
               aiSupported={aiSupported}
               devMode={devMode}
@@ -1198,5 +1398,6 @@ export default function App() {
       {toast && <div className="toast" role="status"><span className="toast-icon"><Check size={17}/></span><span>{toast}</span><button onClick={() => setToast('')} aria-label="סגירת הודעה"><X size={16}/></button></div>}
       <div className="print-footer">ענפים · {demoSurname} · {new Date().toLocaleDateString('he-IL')} · {bundle.isDemo ? 'נתוני הדגמה בדויים' : 'מידע פרטי מתוך קובץ GEDCOM'}</div>
     </div>
+    </PersonPhotoContext.Provider>
   );
 }

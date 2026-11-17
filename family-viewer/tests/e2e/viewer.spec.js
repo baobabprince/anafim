@@ -14,6 +14,13 @@ test.beforeEach(async ({page}) => {
   await page.evaluate(()=>document.fonts.ready);
 });
 
+test('default demo family includes a bundled portrait', async ({page}) => {
+  const portrait = page.locator('.fx-focus-identity img');
+  await expect(portrait).toHaveAttribute('src', /^data:image\/svg\+xml,/);
+  await expect.poll(() => portrait.evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
+  await expect.poll(() => portrait.evaluate(image => image.getBoundingClientRect().width)).toBeGreaterThanOrEqual(90);
+});
+
 test('focused tree, collapsed relatives, navigation and history work', async ({page}) => {
   await expect(page.locator('.focus-card h2')).toHaveText('תמר לוין');
   await expect(page.locator('.parent-card')).toHaveCount(2);
@@ -69,6 +76,44 @@ test('real file import, local persistence and deletion work', async ({page}, tes
   expect(await page.evaluate(()=>localStorage.getItem('anafim-gedcom-v1'))).toBeNull();
   await page.reload(); await expect(page.locator('.focus-card h2')).toHaveText('תמר לוין');
   expect(errors).toEqual([]); expect(requests).toEqual([]);
+});
+
+test('linked GEDCOM photos and manually added portraits persist locally', async ({page},testInfo) => {
+  await openUpload(page,testInfo.project.name === 'mobile');
+  const withPhoto = custom.replace('1 FAMC @F1@','1 OBJE\n2 FILE portraits/dana.png\n2 FILE portraits/dana-second.png\n1 FAMC @F1@');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lfoAAAAASUVORK5CYII=','base64');
+  await page.getByLabel('בחירת קובץ GEDCOM',{exact:true}).setInputFiles([
+    {name:'family.ged',mimeType:'text/plain',buffer:Buffer.from(withPhoto)},
+    {name:'dana.png',mimeType:'image/png',buffer:png},
+    {name:'dana-second.png',mimeType:'image/png',buffer:png},
+  ]);
+  await page.getByRole('button',{name:'בדיקת הקובץ והתמונות',exact:true}).click();
+  await expect(page.locator('.upload-match-summary')).toContainText('שויכו תמונות ל־1 אנשים');
+  await page.getByRole('button',{name:'פתיחת האילן שלי',exact:true}).click();
+  await expect(page.locator('.fx-focus-identity img')).toBeVisible();
+  await page.getByRole('button',{name:/^פתיחת גלריית התמונות/}).click();
+  const gallery = page.locator('.fx-gallery-dialog');
+  await expect(gallery).toContainText('1 מתוך 2');
+  await gallery.getByRole('button',{name:'התמונה הבאה',exact:true}).click();
+  await expect(gallery).toContainText('2 מתוך 2');
+
+  await gallery.getByRole('button',{name:'הוספת תמונות',exact:true}).click();
+  await page.locator('.fx-photo-input').setInputFiles([
+    {name:'extra-one.png',mimeType:'image/png',buffer:png},
+    {name:'extra-two.png',mimeType:'image/png',buffer:png},
+  ]);
+  await expect(gallery).toContainText('2 מתוך 4');
+  await page.reload();
+  await expect(page.locator('.fx-focus-identity img')).toBeVisible();
+  await page.getByRole('button',{name:/^פתיחת גלריית התמונות/}).click();
+  await expect(page.locator('.fx-gallery-dialog')).toContainText('1 מתוך 4');
+  await page.locator('.fx-gallery-dialog').getByRole('button',{name:'התמונה הבאה',exact:true}).click();
+  await page.locator('.fx-gallery-dialog').getByRole('button',{name:'הסרת התמונה הזו',exact:true}).click();
+  await expect(page.locator('.fx-gallery-dialog')).toContainText('3');
+  await page.reload();
+  await page.getByRole('button',{name:/פתיחת גלריית התמונות \(3\)/}).click();
+  await expect(page.locator('.fx-gallery-dialog')).toContainText('1 מתוך 3');
+  await expect(page.locator('.fx-focus-identity img')).toHaveCount(0);
 });
 
 test('invalid file reports an error and retry preserves current data', async ({page},testInfo) => {

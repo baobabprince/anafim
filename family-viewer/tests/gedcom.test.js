@@ -45,6 +45,11 @@ test('multiline notes, source citations and individual birth names are retained'
   assert.equal(d.sources['@S1@'].title,'Family book'); assert.equal(d.people['@A@'].sources[0].page,'42');
 });
 
+test('individual photos resolve both inline and shared GEDCOM object records', () => {
+  const d = parseGedcom(wrap('0 @A@ INDI\n1 NAME Ada /Lovelace/\n1 OBJE\n2 FILE portraits/ada.jpg\n2 FORM jpg\n1 OBJE @O1@\n0 @O1@ OBJE\n1 FILE portraits/ada-childhood.png'));
+  assert.deepEqual(d.people['@A@'].images, ['portraits/ada.jpg', 'portraits/ada-childhood.png']);
+});
+
 test('malformed lines, missing links and duplicate IDs do not crash the parser', () => {
   const d = parseGedcom(wrap('bad line\n0 @A@ INDI\n1 NAME First\n1 FAMC @F404@\n0 @A@ INDI\n1 NAME Duplicate'));
   assert.equal(d.stats.people,1); assert.equal(d.people['@A@'].name,'First'); assert.ok(d.warnings.length >= 3);

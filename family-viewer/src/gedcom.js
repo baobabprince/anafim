@@ -35,7 +35,7 @@ function eventFromNode(n) {
 function* parseGedcomSteps(raw) {
   if (typeof raw !== 'string' || !raw.trim()) throw new Error('הקובץ ריק. בחרו קובץ GEDCOM המכיל אנשים ומשפחות.');
   if (raw.startsWith('%PDF')) throw new Error('זהו קובץ PDF. כדי להציג את המשפחה, יש להעלות קובץ GEDCOM בסיומת ‎.ged.');
-  const people = {}, families = {}, notes = {}, sources = {}, warnings = [], order = [];
+  const people = {}, families = {}, notes = {}, sources = {}, mediaObjects = {}, warnings = [], order = [];
   let metadata = { version: '', source: '', charset: '', file: '', date: '' };
   let root = null, stack = [], malformed = 0;
   const warn = message => { if (warnings.length < 100 && !warnings.includes(message)) warnings.push(message); };
@@ -74,13 +74,14 @@ function* parseGedcomSteps(raw) {
       const eventTags = ['BIRT','DEAT','BURI','CREM','BAPM','CHR','ADOP','RESI','IMMI','EMIG','NATU','GRAD','RETI','OCCU','EDUC','EVEN','CENS'];
       const events = n.children.filter(c => eventTags.includes(c.tag)).map(eventFromNode);
       const alternateNames = nameEntries.filter(e => e !== primaryEntry).map(e => e.full).filter(Boolean);
-      const p = { id: n.xref, name, given, surname, sex: value(n, 'SEX'), alternateNames, marriedSurname, birthSurname, birth: events.find(e => e.type === 'BIRT') || null, death: events.find(e => e.type === 'DEAT') || null, events, parentFamilies: children(n, 'FAMC').map(c => ({ id: c.value, type: value(c, 'PEDI') || 'birth' })), spouseFamilies: children(n, 'FAMS').map(c => c.value), notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text), sources: citationsFromNode(n), occupation: text(child(n, 'OCCU')), attributes:n.children.filter(c=>['NATI','RELI','TITL','DSCR','IDNO','NCHI','NMR'].includes(c.tag)).map(c=>({type:c.tag,value:text(c)})) };
+      const p = { id: n.xref, name, given, surname, sex: value(n, 'SEX'), alternateNames, marriedSurname, birthSurname, birth: events.find(e => e.type === 'BIRT') || null, death: events.find(e => e.type === 'DEAT') || null, events, images:children(n,'OBJE').map(object=>object.value.trim() || children(object,'FILE').map(text)).flat(), parentFamilies: children(n, 'FAMC').map(c => ({ id: c.value, type: value(c, 'PEDI') || 'birth' })), spouseFamilies: children(n, 'FAMS').map(c => c.value), notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text), sources: citationsFromNode(n), occupation: text(child(n, 'OCCU')), attributes:n.children.filter(c=>['NATI','RELI','TITL','DSCR','IDNO','NCHI','NMR'].includes(c.tag)).map(c=>({type:c.tag,value:text(c)})) };
       people[p.id] = p;
       order.push(p.id);
     } else if (n.tag === 'FAM' && n.xref) {
       if (families[n.xref]) { warn(`מזהה משפחה כפול: ${n.xref}. נשמר הרישום הראשון.`); return; }
       families[n.xref] = { id: n.xref, partners: unique([...children(n, 'HUSB'), ...children(n, 'WIFE'), ...children(n, '_PART')].map(c => c.value)), children: unique(children(n, 'CHIL').map(c => c.value)), marriage: child(n, 'MARR') ? eventFromNode(child(n, 'MARR')) : null, divorce: child(n, 'DIV') ? eventFromNode(child(n, 'DIV')) : null, events:n.children.filter(c=>['ENGA','EVEN','RESI','CENS'].includes(c.tag)).map(eventFromNode), sources:citationsFromNode(n), notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text) };
-    } else if (['NOTE','SNOTE'].includes(n.tag) && n.xref) notes[n.xref] = text(n);
+    } else if (n.tag === 'OBJE' && n.xref) mediaObjects[n.xref] = children(n, 'FILE').map(text);
+    else if (['NOTE','SNOTE'].includes(n.tag) && n.xref) notes[n.xref] = text(n);
     else if (n.tag === 'SOUR' && n.xref) sources[n.xref] = { id: n.xref, title: text(child(n, 'TITL')) || n.value, author: text(child(n, 'AUTH')), publication: text(child(n, 'PUBL')) };
   };
   const lines = raw.replace(/^\uFEFF/, '').split(/\r\n|\n|\r/);
@@ -99,6 +100,9 @@ function* parseGedcomSteps(raw) {
   }
   addRecord(root);
   if (!order.length) throw new Error('לא נמצאו אנשים בקובץ. ודאו שזהו קובץ GEDCOM תקין, ולא PDF או קובץ ששמו שונה ל־‎.ged.');
+  for (const p of Object.values(people)) {
+    p.images = unique(p.images.flatMap(image => ref(image) ? mediaObjects[ref(image)] || [] : [image]));
+  }
   if (malformed) warn(`${malformed.toLocaleString('he-IL')} שורות שלא זוהו דולגו. יתר המידע נטען.`);
   if (!metadata.version) warn('גרסת GEDCOM לא צוינה בכותרת הקובץ. המידע הזמין הוצג בכל זאת.');
   // Reconcile both directions: many genealogy programs omit one side of a link.
