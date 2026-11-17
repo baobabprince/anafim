@@ -5,10 +5,10 @@ import {
   CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileText, Flower2,
   GitBranch, Heart, House, Info, Layers3, MapPin, Network, Pencil, RotateCcw,
   Printer, Quote, ShieldCheck, Sparkles, Sprout, UserRound, UsersRound, X,
-  ImagePlus, Trash2,
+  ImagePlus, Trash2, Route,
 } from 'lucide-react';
 import { EditPersonAiModal } from './EditPersonAiModal.jsx';
-import { formatDate, formatDateCentral, getRelations, getYear, initials, lifeLabel, pedigreeLabel } from './gedcom.js';
+import { findRelationshipPath, formatDate, formatDateCentral, getRelations, getYear, initials, lifeLabel, normalize, pedigreeLabel } from './gedcom.js';
 import { ATTRIBUTE_NAMES, branchPeople, eventTitle, personInformation, personRecord } from './person-info.js';
 import { t, getLang } from './i18n/index.js';
 import { usePersonPhoto, usePersonPhotos } from './PersonPhotoContext.jsx';
@@ -143,6 +143,103 @@ function PhotoGallery({ person, photos, index, setIndex, onClose, onAdd, onRemov
           <button type="button" className="fx-photo-button" onClick={onAdd}><ImagePlus size={15}/>{t('fx.addPhotos')}</button>
           <button type="button" className="fx-photo-remove" onClick={onRemove}><Trash2 size={15}/>{t('fx.galleryRemove')}</button>
         </footer>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+function PersonPicker({ data, label, value, initialPerson, onChange, id }) {
+  const [query, setQuery] = useState(initialPerson?.name || '');
+  const [open, setOpen] = useState(false);
+  const terms = normalize(query).split(/\s+/).filter(Boolean);
+  const matches = useMemo(() => data.order
+    .filter(personId => terms.every(term => data.people[personId].search.includes(term)))
+    .slice(0, 8)
+    .map(personId => data.people[personId]), [data, terms.join(' ')]);
+
+  return <div className="fx-path-picker" onBlur={event => {
+    if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+  }}>
+    <label htmlFor={`fx-path-${id}`}>{label}</label>
+    <input
+      id={`fx-path-${id}`}
+      type="search"
+      value={query}
+      autoComplete="off"
+      aria-controls={`fx-path-results-${id}`}
+      aria-expanded={open}
+      onFocus={() => setOpen(true)}
+      onChange={event => {
+        setQuery(event.target.value);
+        onChange('');
+        setOpen(true);
+      }}
+    />
+    {open && <div className="fx-path-results" id={`fx-path-results-${id}`} role="group" aria-label={label}>
+      {matches.length ? matches.map(match => <button
+        type="button"
+        aria-pressed={value === match.id}
+        key={match.id}
+        onClick={() => {
+          setQuery(match.name);
+          onChange(match.id);
+          setOpen(false);
+        }}
+      ><strong dir="auto">{match.name}</strong><small>{lifeLabel(match)}</small></button>) : <span>{t('fx.pathNoMatches')}</span>}
+    </div>}
+  </div>;
+}
+
+function RelationshipPathDialog({ data, currentPerson, onClose, onSelect }) {
+  const closeButton = useRef(null);
+  const [startId, setStartId] = useState(currentPerson.id);
+  const [endId, setEndId] = useState('');
+  const path = useMemo(
+    () => startId && endId ? findRelationshipPath(data, startId, endId) : null,
+    [data, startId, endId],
+  );
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement;
+    document.body.style.overflow = 'hidden';
+    closeButton.current?.focus();
+    const handleKeyDown = event => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus?.();
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div className="fx-path-backdrop" role="presentation" onClick={onClose}>
+      <section className="fx-path-dialog" role="dialog" aria-modal="true" aria-labelledby="fx-path-title" onClick={event => event.stopPropagation()}>
+        <header className="fx-path-heading">
+          <div><h2 id="fx-path-title">{t('fx.pathTitle')}</h2><p>{t('fx.pathHint')}</p></div>
+          <button ref={closeButton} type="button" className="fx-gallery-close" aria-label={t('common.close')} onClick={onClose}><X size={20}/></button>
+        </header>
+        <div className="fx-path-pickers">
+          <PersonPicker data={data} id="start" label={t('fx.pathFrom')} value={startId} initialPerson={currentPerson} onChange={setStartId}/>
+          <PersonPicker data={data} id="end" label={t('fx.pathTo')} value={endId} onChange={setEndId}/>
+        </div>
+        {startId && endId ? path ? <ol className="fx-path-result" aria-label={t('fx.pathResult')}>
+          {path.map((step, index) => {
+            const personInPath = data.people[step.id];
+            const relationLabel = step.relationship === 'parent' ? 'fx.pathParentOf' : step.relationship === 'child' ? 'fx.pathChildOf' : 'fx.pathPartnerOf';
+            return <li key={step.id}>
+              {index > 0 && <div className="fx-path-connection"><span aria-hidden="true"/><small>{t(relationLabel)}</small></div>}
+              <button type="button" className="fx-path-person" onClick={() => { onClose(); onSelect(step.id); }}>
+                <Portrait person={personInPath} size="small"/>
+                <strong dir="auto">{personInPath.name}</strong>
+                <small>{lifeLabel(personInPath)}</small>
+              </button>
+            </li>;
+          })}
+        </ol> : <p className="fx-path-empty">{t('fx.pathNotFound')}</p> : <p className="fx-path-empty">{t('fx.pathChoosePeople')}</p>}
       </section>
     </div>,
     document.body,
@@ -289,6 +386,8 @@ export default function FamilyExperience({
   onRemovePersonPhoto,
 }) {
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [relationshipPathOpen, setRelationshipPathOpen] = useState(false);
+  const closeRelationshipPath = useCallback(() => setRelationshipPathOpen(false), []);
   const relations = useMemo(()=>getRelations(data,person.id,parentFamily),[data,person.id,parentFamily]);
   const info = useMemo(()=>personInformation(data,person),[data,person]);
   const preferGrandparentsOpen = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 900px)').matches;
@@ -305,7 +404,8 @@ export default function FamilyExperience({
   const openGroup = type => {requestAnimationFrame(()=>document.getElementById(`relatives-${type}`)?.scrollIntoView({behavior:scrollBehavior(),block:'nearest'}));};
   const openInspector = nextTab => {setTab(nextTab);requestAnimationFrame(()=>document.getElementById('person-inspector')?.scrollIntoView({behavior:scrollBehavior(),block:window.innerWidth < 801 ? 'start' : 'nearest'}));};
   const openSources = () => openInspector('sources');
-  return <div className="family-experience"><div className="workspace-heading fx-workspace-heading" id="family-title"><div className="view-heading"><span className="fx-view-icon"><Network size={16}/></span><h2>{t('fx.familyView')}</h2><span className="fx-view-subtitle">אדם אחד. עולם של חיבורים.</span></div><div className="view-actions"><div className="history-controls"><button className="icon-button" disabled={history.cursor === 0} onClick={()=>onHistory(-1)} aria-label="חזרה לאדם הקודם" title="חזרה לאדם הקודם"><ArrowRight size={16}/></button><button className="icon-button" disabled={history.cursor === history.ids.length-1} onClick={()=>onHistory(1)} aria-label="מעבר לאדם הבא" title="מעבר לאדם הבא"><ArrowLeft size={16}/></button></div><span className="action-divider"/><button className="text-button print-button" onClick={()=>window.print()}><Printer size={15}/><span>הדפסה / PDF</span></button></div></div><div className="content-grid fx-content-grid"><section className="family-panel fx-family-panel" aria-label={`המעגל המשפחתי של ${person.name}`}><header className="fx-canvas-header"><div><h3>{t('fx.closeCircle')}</h3><p>כל החיבורים שמתחילים ב־<bdi>{person.given || person.name}</bdi></p></div><div className="fx-canvas-actions"><button className={`fx-grandparents-toggle ${showGrandparents ? 'selected' : ''}`} onClick={()=>setShowGrandparents(v=>!v)} aria-expanded={showGrandparents && relations.parents.length > 0} aria-controls="grandparents-generation" aria-label={showGrandparents && relations.parents.length > 0 ? t('fx.hideGrandparents') : t('fx.showGrandparents')} disabled={!relations.parents.length}><Layers3 size={14}/><span>סבים וסבתות</span><b>{count(grandparentCount)}</b><ChevronDown className="fx-grandparents-chevron" size={12}/></button><button className="icon-button fx-help" onClick={onHelp} aria-label="איך מנווטים באילן?"><Info size={17}/></button></div></header><div className={`fx-tree-stage ${showGrandparents ? 'fx-three-generations' : ''}`} style={{'--fx-parent-count':Math.max(1,relations.parents.length)}}><div className="fx-generation-label"><span/>{showGrandparents && relations.parents.length > 0 ? t('fx.grandparentsGen') : t('fx.parentsGen')}<span/></div>{relations.parentFamilies.length > 1 && <select className="fx-pedigree-select" aria-label={t('fx.chooseParentFamily')} value={relations.activeParentFamily || ''} onChange={event=>setParentFamily(event.target.value)}>{relations.parentFamilies.map((pf,i)=><option key={pf.id} value={pf.id}>{pedigreeLabel(pf.type)}{i ? ` ${i+1}` : ''}</option>)}</select>}{relations.parents.length > 0 && <GrandparentsGeneration branches={grandparents} open={showGrandparents} onSelect={onSelect} onFamilyChange={(parentId,familyId)=>setGrandparentFamilies(current=>({...current,[parentId]:familyId}))}/>}{relations.parents.length > 0 ? <><div className={`parents-row fx-parents-row ${relations.parents.length === 1 ? 'one-parent' : ''}`}>{relations.parents.map(p=><ParentCard key={p.id} person={p} onSelect={onSelect}/>)}</div><div className={`fx-parent-connector ${relations.parents.length === 1 ? 'one-parent' : ''}`}><svg viewBox="0 0 600 62" preserveAspectRatio="none" fill="none" aria-hidden="true">{relations.parents.length > 1 ? <path d="M150 0V16Q150 31 166 31H434Q450 31 450 16V0M300 31V62"/> : <path d="M300 0V62"/>}<circle cx="300" cy="31" r="4"/></svg>{parentMarriage?.date && <span className="fx-parent-marriage"><Heart size={10}/><bdi>{formatDate(parentMarriage.date)}</bdi></span>}</div></> : <div className="no-parents fx-no-parents"><Sprout size={26}/><strong>{t('fx.branchStarts')}</strong><span>הורים לא תועדו בקובץ. ממשיכים לגלות דרך המשפחה למטה.</span></div>}<FocusCard person={person} info={info} relations={relations} onOpenGroup={openGroup} onSources={openSources} onEditAi={()=>setEditModalOpen(true)} onUndoEdit={onUndoEdit} canUndo={canUndo} aiSupported={aiSupported} devMode={devMode} onSetPersonPhoto={onSetPersonPhoto} onRemovePersonPhoto={onRemovePersonPhoto}/><div className="fx-focus-stem"><span/></div><button className="fx-canvas-caption" onClick={()=>openInspector('overview')} aria-controls="person-inspector"><BookOpen size={12}/>לפרטים מלאים, אירועים ומקורות<ChevronDown size={11}/></button></div><div className="fx-connected-relatives"><div className="fx-relatives-label"><UsersRound size={13}/><span>{t('fx.familyAround')}</span><span className="fx-relatives-rule"/><span className="fx-compact-hint">הזזה ימינה ושמאלה לכל הרשימה</span></div><RelativeSection title="בני ובנות זוג" icon={Heart} people={relations.partners} type="partners" onSelect={onSelect}/><RelativeSection title="ילדים וילדות" icon={Baby} people={relations.children} type="children" onSelect={onSelect}/><RelativeSection title="אחים ואחיות" icon={UsersRound} people={relations.siblings} type="siblings" onSelect={onSelect}/></div><footer className="fx-canvas-footer"><span><span className="fx-legend-current"/>האדם הנבחר</span><span><span className="fx-legend-parent"/>הורים במבט מלא</span><span><ShieldCheck size={11}/>פענוח רק במכשיר</span></footer></section><PersonInspector data={data} person={person} info={info} bundle={bundle} onSelect={onSelect} tab={tab} setTab={setTab} onEditAi={()=>setEditModalOpen(true)} onUndoEdit={onUndoEdit} canUndo={canUndo} aiSupported={aiSupported} devMode={devMode}/></div>
+  return <div className="family-experience"><div className="workspace-heading fx-workspace-heading" id="family-title"><div className="view-heading"><span className="fx-view-icon"><Network size={16}/></span><h2>{t('fx.familyView')}</h2><span className="fx-view-subtitle">אדם אחד. עולם של חיבורים.</span></div><div className="view-actions"><div className="history-controls"><button className="icon-button" disabled={history.cursor === 0} onClick={()=>onHistory(-1)} aria-label="חזרה לאדם הקודם" title="חזרה לאדם הקודם"><ArrowRight size={16}/></button><button className="icon-button" disabled={history.cursor === history.ids.length-1} onClick={()=>onHistory(1)} aria-label="מעבר לאדם הבא" title="מעבר לאדם הבא"><ArrowLeft size={16}/></button></div><span className="action-divider"/><button className="text-button print-button" onClick={()=>window.print()}><Printer size={15}/><span>{t('fx.printPdf')}</span></button></div></div><div className="content-grid fx-content-grid"><section className="family-panel fx-family-panel" aria-label={`המעגל המשפחתי של ${person.name}`}><header className="fx-canvas-header"><div><h3>{t('fx.closeCircle')}</h3><p>כל החיבורים שמתחילים ב־<bdi>{person.given || person.name}</bdi></p></div><div className="fx-canvas-actions"><button className={`fx-grandparents-toggle ${showGrandparents ? 'selected' : ''}`} onClick={()=>setShowGrandparents(v=>!v)} aria-expanded={showGrandparents && relations.parents.length > 0} aria-controls="grandparents-generation" aria-label={showGrandparents && relations.parents.length > 0 ? t('fx.hideGrandparents') : t('fx.showGrandparents')} disabled={!relations.parents.length}><Layers3 size={14}/><span>סבים וסבתות</span><b>{count(grandparentCount)}</b><ChevronDown className="fx-grandparents-chevron" size={12}/></button><button type="button" className="fx-path-trigger" onClick={()=>setRelationshipPathOpen(true)}><Route size={14}/><span>{t('fx.pathOpen')}</span></button><button className="icon-button fx-help" onClick={onHelp} aria-label={t('fx.howNavigate')}><Info size={17}/></button></div></header><div className={`fx-tree-stage ${showGrandparents ? 'fx-three-generations' : ''}`} style={{'--fx-parent-count':Math.max(1,relations.parents.length)}}><div className="fx-generation-label"><span/>{showGrandparents && relations.parents.length > 0 ? t('fx.grandparentsGen') : t('fx.parentsGen')}<span/></div>{relations.parentFamilies.length > 1 && <select className="fx-pedigree-select" aria-label={t('fx.chooseParentFamily')} value={relations.activeParentFamily || ''} onChange={event=>setParentFamily(event.target.value)}>{relations.parentFamilies.map((pf,i)=><option key={pf.id} value={pf.id}>{pedigreeLabel(pf.type)}{i ? ` ${i+1}` : ''}</option>)}</select>}{relations.parents.length > 0 && <GrandparentsGeneration branches={grandparents} open={showGrandparents} onSelect={onSelect} onFamilyChange={(parentId,familyId)=>setGrandparentFamilies(current=>({...current,[parentId]:familyId}))}/>}{relations.parents.length > 0 ? <><div className={`parents-row fx-parents-row ${relations.parents.length === 1 ? 'one-parent' : ''}`}>{relations.parents.map(p=><ParentCard key={p.id} person={p} onSelect={onSelect}/>)}</div><div className={`fx-parent-connector ${relations.parents.length === 1 ? 'one-parent' : ''}`}><svg viewBox="0 0 600 62" preserveAspectRatio="none" fill="none" aria-hidden="true">{relations.parents.length > 1 ? <path d="M150 0V16Q150 31 166 31H434Q450 31 450 16V0M300 31V62"/> : <path d="M300 0V62"/>}<circle cx="300" cy="31" r="4"/></svg>{parentMarriage?.date && <span className="fx-parent-marriage"><Heart size={10}/><bdi>{formatDate(parentMarriage.date)}</bdi></span>}</div></> : <div className="no-parents fx-no-parents"><Sprout size={26}/><strong>{t('fx.branchStarts')}</strong><span>הורים לא תועדו בקובץ. ממשיכים לגלות דרך המשפחה למטה.</span></div>}<FocusCard person={person} info={info} relations={relations} onOpenGroup={openGroup} onSources={openSources} onEditAi={()=>setEditModalOpen(true)} onUndoEdit={onUndoEdit} canUndo={canUndo} aiSupported={aiSupported} devMode={devMode} onSetPersonPhoto={onSetPersonPhoto} onRemovePersonPhoto={onRemovePersonPhoto}/><div className="fx-focus-stem"><span/></div><button className="fx-canvas-caption" onClick={()=>openInspector('overview')} aria-controls="person-inspector"><BookOpen size={12}/>לפרטים מלאים, אירועים ומקורות<ChevronDown size={11}/></button></div><div className="fx-connected-relatives"><div className="fx-relatives-label"><UsersRound size={13}/><span>{t('fx.familyAround')}</span><span className="fx-relatives-rule"/><span className="fx-compact-hint">הזזה ימינה ושמאלה לכל הרשימה</span></div><RelativeSection title="בני ובנות זוג" icon={Heart} people={relations.partners} type="partners" onSelect={onSelect}/><RelativeSection title="ילדים וילדות" icon={Baby} people={relations.children} type="children" onSelect={onSelect}/><RelativeSection title="אחים ואחיות" icon={UsersRound} people={relations.siblings} type="siblings" onSelect={onSelect}/></div><footer className="fx-canvas-footer"><span><span className="fx-legend-current"/>האדם הנבחר</span><span><span className="fx-legend-parent"/>הורים במבט מלא</span><span><ShieldCheck size={11}/>פענוח רק במכשיר</span></footer></section><PersonInspector data={data} person={person} info={info} bundle={bundle} onSelect={onSelect} tab={tab} setTab={setTab} onEditAi={()=>setEditModalOpen(true)} onUndoEdit={onUndoEdit} canUndo={canUndo} aiSupported={aiSupported} devMode={devMode}/></div>
+  {relationshipPathOpen && <RelationshipPathDialog data={data} currentPerson={person} onClose={closeRelationshipPath} onSelect={onSelect}/>}
   {editModalOpen && (
     <EditPersonAiModal
       isOpen={editModalOpen}

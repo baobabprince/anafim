@@ -169,3 +169,32 @@ button.fx-canvas-caption{min-height:30px;padding:3px 9px;border-radius:5px}butto
 .fx-gallery-thumbnails img{width:100%;height:100%;object-fit:cover}
 .fx-gallery-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px;border-top:1px solid #e8e6dd}
 @media(max-width:600px){.fx-gallery-backdrop{padding:10px}.fx-gallery-dialog{max-height:calc(100dvh - 20px);border-radius:12px}.fx-gallery-header{padding:10px 12px}.fx-gallery-header h2{font-size:16px}.fx-gallery-stage{min-height:180px}.fx-gallery-stage>img{max-height:64vh}.fx-gallery-nav{width:36px;height:36px}.fx-gallery-prev{right:8px}.fx-gallery-next{left:8px}.fx-gallery-actions{padding:9px 10px}}
+.fx-path-trigger{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:6px 10px;border:1px solid #dfe6d9;border-radius:8px;background:#fff;color:#405b43;font:inherit;font-size:11px;cursor:pointer}
+.fx-path-trigger:hover{border-color:#a9bc9c;background:#f6f9f1}
+.fx-path-backdrop{position:fixed;inset:0;z-index:10001;display:grid;place-items:center;padding:20px;background:#17211de8}
+.fx-path-dialog{width:min(560px,100%);max-height:calc(100dvh - 40px);overflow:auto;border:1px solid #dfe5da;border-radius:16px;background:#fbfaf6;box-shadow:0 24px 80px #0005}
+.fx-path-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:16px 18px;border-bottom:1px solid #e8e6dd}
+.fx-path-heading h2{margin:0;color:#35473b;font:600 19px/1.4 'Noto Serif Hebrew',Georgia,serif}
+.fx-path-heading p{margin:5px 0 0;color:#777763;font-size:12px;line-height:1.6}
+.fx-path-pickers{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px 18px}
+.fx-path-picker{position:relative;display:flex;flex-direction:column;gap:6px;min-width:0}
+.fx-path-picker label{font-size:11px;font-weight:600;color:#52644f}
+.fx-path-picker input{width:100%;min-height:38px;padding:8px 10px;border:1px solid #dce3d6;border-radius:8px;background:#fff;color:#35473b;font:inherit;font-size:12px}
+.fx-path-picker input:focus{outline:2px solid #8da981;outline-offset:1px}
+.fx-path-results{position:absolute;z-index:2;top:calc(100% + 3px);inset-inline:0;display:flex;flex-direction:column;max-height:190px;overflow:auto;padding:4px;border:1px solid #dfe5da;border-radius:9px;background:#fff;box-shadow:0 8px 24px #263f341f}
+.fx-path-results button{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;padding:8px;border:0;border-radius:6px;background:transparent;color:#35473b;text-align:start;cursor:pointer}
+.fx-path-results button:hover,.fx-path-results button[aria-selected=true]{background:#edf3e8}
+.fx-path-results strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:600}
+.fx-path-results small{flex:0 0 auto;color:#74806d;font-size:9px}
+.fx-path-results>span{padding:9px;color:#777763;font-size:11px}
+.fx-path-empty{margin:0;padding:16px 18px 20px;color:#707969;text-align:center;font-size:12px}
+.fx-path-result{display:flex;flex-direction:column;align-items:stretch;gap:0;margin:0;padding:4px 18px 20px;list-style:none}
+.fx-path-result li{display:flex;flex-direction:column;align-items:center}
+.fx-path-person{display:flex;align-items:center;gap:9px;width:min(100%,390px);padding:9px 12px;border:1px solid #e2e8dd;border-radius:10px;background:#fff;color:#35473b;text-align:start;cursor:pointer}
+.fx-path-person:hover{border-color:#a9bc9c;background:#f6f9f1}
+.fx-path-person strong{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.fx-path-person>small{color:#7a806f;font-size:10px}
+.fx-path-connection{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 0;color:#6b7b62}
+.fx-path-connection>span{width:1px;height:12px;background:#a9bc9c}
+.fx-path-connection small{font-size:10px}
+@media(max-width:600px){.fx-path-backdrop{padding:10px}.fx-path-dialog{max-height:calc(100dvh - 20px);border-radius:12px}.fx-path-heading{padding:12px}.fx-path-heading h2{font-size:16px}.fx-path-pickers{grid-template-columns:1fr;gap:12px;padding:12px}.fx-path-result{padding:4px 12px 14px}}

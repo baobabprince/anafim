@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseGedcom, getRelations, decodeGedcom, formatDate, normalize, getYear } from '../src/gedcom.js';
+import { parseGedcom, getRelations, findRelationshipPath, decodeGedcom, formatDate, normalize, getYear } from '../src/gedcom.js';
 import { DEMO_TEXT } from '../src/demo.js';
 const wrap = body => `0 HEAD\n1 GEDC\n2 VERS 7.0\n1 CHAR UTF-8\n${body}\n0 TRLR`;
 
@@ -36,6 +36,18 @@ test('half siblings are recognized across a shared parent’s families', () => {
   const d = parseGedcom(wrap('0 @C@ INDI\n1 NAME Child\n0 @S@ INDI\n1 NAME Sibling\n0 @P@ INDI\n1 NAME Parent\n0 @Q@ INDI\n1 NAME Q\n0 @R@ INDI\n1 NAME R\n0 @F1@ FAM\n1 HUSB @P@\n1 WIFE @Q@\n1 CHIL @C@\n0 @F2@ FAM\n1 HUSB @P@\n1 WIFE @R@\n1 CHIL @S@'));
   const siblings = getRelations(d,'@C@').siblings;
   assert.equal(siblings.length,1); assert.equal(siblings[0].half,true);
+});
+
+test('relationship paths find the shortest family connection and its direction', () => {
+  const d = parseGedcom(wrap('0 @A@ INDI\n1 NAME Parent\n1 FAMS @F1@\n0 @B@ INDI\n1 NAME Child\n1 FAMC @F1@\n1 FAMS @F2@\n0 @C@ INDI\n1 NAME Partner\n1 FAMS @F2@\n0 @D@ INDI\n1 NAME Unconnected\n0 @F1@ FAM\n1 HUSB @A@\n1 CHIL @B@\n0 @F2@ FAM\n1 HUSB @B@\n1 WIFE @C@'));
+  assert.deepEqual(findRelationshipPath(d, '@A@', '@C@'), [
+    { id: '@A@', relationship: null },
+    { id: '@B@', relationship: 'child' },
+    { id: '@C@', relationship: 'partner' },
+  ]);
+  assert.deepEqual(findRelationshipPath(d, '@A@', '@A@'), [{ id: '@A@', relationship: null }]);
+  assert.equal(findRelationshipPath(d, '@A@', '@D@'), null);
+  assert.equal(findRelationshipPath(d, '@A@', '@MISSING@'), null);
 });
 
 test('multiline notes, source citations and individual birth names are retained', () => {

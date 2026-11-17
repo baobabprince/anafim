@@ -38,6 +38,20 @@ test('focused tree, collapsed relatives, navigation and history work', async ({p
   await expect(page.locator('.parent-card')).toHaveText([/יוסף לוין/,/מרים לוין/]);
 });
 
+test('family connection path can be found and opened from the result', async ({page}) => {
+  await page.getByRole('button',{name:'מציאת מסלול',exact:true}).click();
+  const dialog = page.getByRole('dialog',{name:'הקשר בין שני אנשים'});
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('#fx-path-start')).toHaveValue('תמר לוין');
+  await dialog.locator('#fx-path-end').fill('נועה');
+  await dialog.getByRole('button').filter({hasText:'נועה כהן'}).click();
+  await expect(dialog.locator('.fx-path-result li')).toHaveCount(2);
+  await expect(dialog.locator('.fx-path-result')).toContainText('ילד/ה של');
+  await dialog.locator('.fx-path-person').last().click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator('.focus-card h2')).toHaveText('נועה כהן');
+});
+
 test('search by name, keyboard selection and searchable directory work', async ({page}) => {
   const input = page.getByRole('combobox');
   await input.fill('רחל');

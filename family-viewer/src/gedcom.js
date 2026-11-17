@@ -250,6 +250,50 @@ export function getRelations(data, id, parentFamilyId) {
   return { parents: parentIds.filter(pid => data.people[pid]).map(pid => data.people[pid]), siblings: siblings.sort(byBirth), partners: [...partnerMap.values()], children: [...childMap.values()].sort(byBirth), parentFamilies, activeParentFamily: pf?.id };
 }
 
+export function findRelationshipPath(data, startId, endId) {
+  if (!data?.people?.[startId] || !data.people[endId]) return null;
+  if (startId === endId) return [{ id: startId, relationship: null }];
+
+  const graph = new Map(Object.keys(data.people).map(id => [id, []]));
+  const connect = (from, to, relationship, reverseRelationship = relationship) => {
+    if (!graph.has(from) || !graph.has(to)) return;
+    graph.get(from).push({ id: to, relationship });
+    graph.get(to).push({ id: from, relationship: reverseRelationship });
+  };
+  for (const family of Object.values(data.families)) {
+    for (let i = 0; i < family.partners.length; i++) {
+      for (let j = i + 1; j < family.partners.length; j++) {
+        connect(family.partners[i], family.partners[j], 'partner');
+      }
+    }
+    for (const parentId of family.partners) {
+      for (const childId of family.children) {
+        connect(parentId, childId, 'child', 'parent');
+      }
+    }
+  }
+
+  const previous = new Map([[startId, null]]);
+  const queue = [startId];
+  for (let cursor = 0; cursor < queue.length && !previous.has(endId); cursor++) {
+    const id = queue[cursor];
+    for (const edge of graph.get(id)) {
+      if (previous.has(edge.id)) continue;
+      previous.set(edge.id, { id, relationship: edge.relationship });
+      queue.push(edge.id);
+    }
+  }
+  if (!previous.has(endId)) return null;
+
+  const path = [];
+  for (let id = endId; id !== null;) {
+    const step = previous.get(id);
+    path.push({ id, relationship: step?.relationship ?? null });
+    id = step?.id ?? null;
+  }
+  return path.reverse();
+}
+
 export function getYear(date = '') {
   return Number(String(date).match(/\b(\d{3,4})\b/)?.[1]) || null;
 }
