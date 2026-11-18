@@ -32,6 +32,9 @@ jobs:
 
       - name: Install dependencies
         working-directory: family-viewer
+        env:
+          # onnxruntime-node postinstall tries to download CUDA binaries (404 on runners)
+          onnxruntime_node_install_cuda: skip
         run: npm ci
 
       - name: Build with public Supabase config
