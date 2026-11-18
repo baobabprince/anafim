@@ -13,6 +13,7 @@ import { useI18n } from './i18n/I18nContext.jsx';
 import LangToggle from './i18n/LangToggle.jsx';
 import { PersonPhotoContext, usePersonPhoto } from './PersonPhotoContext.jsx';
 import { addPersonPhotos, deleteBundlePhotos, deletePersonPhoto, getPersonPhotos, resolveGedcomPhotos, savePersonPhotos, validatePhotoFile } from './photo-storage.js';
+import { lockBodyScroll, unlockBodyScroll, forceUnlockBodyScroll } from './scroll-lock.js';
 
 const STORAGE_FILES_KEY = 'anafim-saved-files-v1';
 const STORAGE_ACTIVE_ID_KEY = 'anafim-active-file-id-v1';
@@ -229,8 +230,7 @@ function Dialog({title, subtitle, children, onClose, className = '' }) {
   onCloseRef.current = onClose;
   useEffect(() => {
     const previous = document.activeElement;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    lockBodyScroll();
     const handleKey = e => {
       if (e.key === 'Escape') { e.preventDefault(); onCloseRef.current(); }
       if (e.key === 'Tab') {
@@ -243,7 +243,7 @@ function Dialog({title, subtitle, children, onClose, className = '' }) {
     };
     document.addEventListener('keydown', handleKey);
     ref.current?.querySelector('button')?.focus();
-    return () => { document.body.style.overflow = overflow; document.removeEventListener('keydown', handleKey); previous?.focus?.(); };
+    return () => { unlockBodyScroll(); document.removeEventListener('keydown', handleKey); previous?.focus?.(); };
   }, []);
   return createPortal(<div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><section className={`dialog ${className}`} role="dialog" aria-modal="true" aria-labelledby="dialog-title" ref={ref}><button className="icon-button dialog-close" onClick={onClose} aria-label={t('common.close')}><X size={20}/></button><div className="dialog-heading"><span className="dialog-icon"><Sprout size={26}/></span><h2 id="dialog-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{children}</section></div>, document.body);
 }
@@ -1073,8 +1073,8 @@ export default function App() {
   useEffect(() => { if (toast) { const timer = setTimeout(() => setToast(''), 5500); return () => clearTimeout(timer); } }, [toast]);
   useEffect(() => {
     if (!mobileMenu) return;
-    const previous = document.activeElement, overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const previous = document.activeElement;
+    lockBodyScroll();
     menuRef.current?.querySelector('button')?.focus();
     const key = e => {
       if (e.key === 'Escape') setMobileMenu(false);
@@ -1085,7 +1085,7 @@ export default function App() {
       }
     };
     document.addEventListener('keydown',key);
-    return () => { document.removeEventListener('keydown',key); document.body.style.overflow = overflow; previous?.focus?.(); };
+    return () => { document.removeEventListener('keydown',key); unlockBodyScroll(); previous?.focus?.(); };
   }, [mobileMenu]);
   const scrollToFamily = () => { requestAnimationFrame(() => { if (window.innerWidth < 900) document.getElementById('family-title')?.scrollIntoView({ behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block:'start' }); }); };
   const selectPerson = useCallback(id => {
@@ -1127,7 +1127,7 @@ export default function App() {
       setActiveFileIdInStorage(result.id);
     }
     if (photosSavedError) result.photosSavedError = photosSavedError;
-    setBundle(result); setHistory({ ids:[result.isDemo ? DEMO_ROOT : result.data.order[0]], cursor:0 }); setQuery(''); setParentFamily(''); setView('family'); setModal(null); setMobileMenu(false); window.scrollTo({top:0,behavior:'instant'});
+    setBundle(result); setHistory({ ids:[result.isDemo ? DEMO_ROOT : result.data.order[0]], cursor:0 }); setQuery(''); setParentFamily(''); setView('family'); setModal(null); setMobileMenu(false); forceUnlockBodyScroll(); window.scrollTo({top:0,behavior:'instant'});
     setPhotoRevision(revision => revision + 1);
     if (result.photosSavedError) setToast(result.photosSavedError);
     else if (bundleSavedError) setToast(bundleSavedError);

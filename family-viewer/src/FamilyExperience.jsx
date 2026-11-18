@@ -12,6 +12,7 @@ import { findRelationshipPath, formatDate, formatDateCentral, getRelations, getY
 import { ATTRIBUTE_NAMES, branchPeople, eventTitle, personInformation, personRecord } from './person-info.js';
 import { t, getLang } from './i18n/index.js';
 import { usePersonPhoto, usePersonPhotos } from './PersonPhotoContext.jsx';
+import { lockBodyScroll, unlockBodyScroll } from './scroll-lock.js';
 
 const count = n => n.toLocaleString(getLang() === 'en' ? 'en-US' : 'he-IL');
 const shortId = id => id.replaceAll('@','');
@@ -105,12 +106,11 @@ function focusIdentity(person, relations) {
 function PhotoGallery({ person, photos, index, setIndex, onClose, onAdd, onRemove }) {
   const closeButton = useRef(null);
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
     const previousFocus = document.activeElement;
-    document.body.style.overflow = 'hidden';
+    lockBodyScroll();
     closeButton.current?.focus();
     return () => {
-      document.body.style.overflow = previousOverflow;
+      unlockBodyScroll();
       previousFocus?.focus?.();
     };
   }, []);
@@ -200,16 +200,15 @@ function RelationshipPathDialog({ data, currentPerson, onClose, onSelect }) {
     [data, startId, endId],
   );
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
     const previousFocus = document.activeElement;
-    document.body.style.overflow = 'hidden';
+    lockBodyScroll();
     closeButton.current?.focus();
     const handleKeyDown = event => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
+      unlockBodyScroll();
       previousFocus?.focus?.();
       window.removeEventListener('keydown', handleKeyDown);
     };
