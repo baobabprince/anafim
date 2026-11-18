@@ -33,9 +33,15 @@ jobs:
       - name: Install dependencies
         working-directory: family-viewer
         env:
-          # onnxruntime-node postinstall tries to download CUDA binaries (404 on runners)
-          onnxruntime_node_install_cuda: skip
-        run: npm ci
+          # onnxruntime-node postinstall tries CUDA binaries that 404 on runners
+          npm_config_onnxruntime_node_install_cuda: skip
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          npm ci --onnxruntime-node-install-cuda=skip || npm ci --ignore-scripts
+          # If scripts were ignored, still need non-CUDA onnxruntime-node install if present
+          if [ -f node_modules/onnxruntime-node/script/install.js ]; then
+            node -e "process.env.npm_config_onnxruntime_node_install_cuda='skip'; require('./node_modules/onnxruntime-node/script/install.js')" || true
+          fi
 
       - name: Build with public Supabase config
         working-directory: family-viewer
