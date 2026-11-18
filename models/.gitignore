@@ -1,0 +1,4 @@
+# Uncomment to keep weights out of git and inject at build/Release time:
+# **/*.onnx
+# **/*.onnx_data
+# **/tokenizer.json
