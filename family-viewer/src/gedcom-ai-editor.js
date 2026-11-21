@@ -5,6 +5,38 @@
 
 export const GEDCOM_MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
+const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+
+/** Sanitize a single-line GEDCOM value so line breaks or control chars cannot inject new tags/records. */
+export function sanitizeGedcomInline(value) {
+  return String(value ?? '')
+    .replace(CONTROL_CHARS, '')
+    .replace(/\r\n|\r|\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Build a GEDCOM NOTE node using 2 CONT lines for any embedded newlines. */
+function createNoteNode(noteText) {
+  const lines = String(noteText ?? '')
+    .replace(CONTROL_CHARS, '')
+    .split(/\r\n|\r|\n/)
+    .map(line => line.trimEnd());
+  const first = (lines[0] || '').trim();
+  const rest = lines.slice(1);
+  return {
+    tag: 'NOTE',
+    val: lines.join('\n').trim(),
+    raw: first ? `1 NOTE ${first}` : '1 NOTE',
+    children: rest.map(line => ({
+      level: 2,
+      tag: 'CONT',
+      val: line,
+      raw: line ? `2 CONT ${line}` : '2 CONT',
+    })),
+  };
+}
+
 const HEBREW_MONTHS = {
   'ינואר': 'JAN', 'פאברואר': 'FEB', 'פברואר': 'FEB', 'מרץ': 'MAR', 'אפריל': 'APR',
   'מאי': 'MAY', 'יוני': 'JUN', 'יולי': 'JUL', 'אוגוסט': 'AUG', 'ספטמבר': 'SEP',
@@ -200,7 +232,7 @@ export function validatePersonUpdates(updates, currentPerson = {}) {
   // Validate Alternate Names
   if (updates.alternateNames !== undefined && updates.alternateNames !== null) {
     if (typeof updates.alternateNames === 'string') {
-      const alt = updates.alternateNames.trim();
+      const alt = sanitizeGedcomInline(updates.alternateNames);
       sanitized.alternateNames = alt ? [alt] : [];
       diff.alternateNames = { old: currentPerson.alternateNames || [], new: sanitized.alternateNames };
     } else if (Array.isArray(updates.alternateNames)) {
@@ -208,7 +240,7 @@ export function validatePersonUpdates(updates, currentPerson = {}) {
       if (!valid) {
         errors.push('מערך alternateNames חייב להכיל מחרוזות בלבד.');
       } else {
-        sanitized.alternateNames = updates.alternateNames.map(a => a.trim()).filter(Boolean);
+        sanitized.alternateNames = updates.alternateNames.map(sanitizeGedcomInline).filter(Boolean);
         diff.alternateNames = { old: currentPerson.alternateNames || [], new: sanitized.alternateNames };
       }
     } else {
@@ -216,7 +248,7 @@ export function validatePersonUpdates(updates, currentPerson = {}) {
     }
   } else if (updates.alternateName !== undefined && updates.alternateName !== null) {
     if (typeof updates.alternateName === 'string') {
-      const alt = updates.alternateName.trim();
+      const alt = sanitizeGedcomInline(updates.alternateName);
       sanitized.alternateNames = alt ? [alt] : [];
       diff.alternateNames = { old: currentPerson.alternateNames || [], new: sanitized.alternateNames };
     } else {
@@ -242,7 +274,10 @@ export function validatePersonUpdates(updates, currentPerson = {}) {
       if (typeof updates[field] !== 'string') {
         errors.push(`השדה ${field} חייב להיות מחרוזת.`);
       } else {
-        const val = updates[field].trim();
+        let val = sanitizeGedcomInline(updates[field]);
+        if (field === 'givenName' || field === 'surname') {
+          val = val.replace(/\//g, '').trim();
+        }
         sanitized[field] = val;
         diff[field] = { old: currentPerson[field] || '', new: val };
       }
@@ -273,7 +308,7 @@ export function validatePersonUpdates(updates, currentPerson = {}) {
       if (typeof updates[field] !== 'string') {
         errors.push(`השדה ${field} חייב להיות מחרוזת תאריך.`);
       } else {
-        const formatted = formatToGedcomDate(updates[field]);
+        const formatted = sanitizeGedcomInline(formatToGedcomDate(updates[field]));
         sanitized[field] = formatted;
         diff[field] = { old: currentPerson[field] || '', new: formatted };
       }
@@ -373,9 +408,9 @@ export function updatePersonRecord(rawBlock, updates, personId) {
     const existingSurn = nameNode?.children.find(c => c.tag === 'SURN')?.val || '';
     const existingNick = nameNode?.children.find(c => c.tag === 'NICK')?.val || '';
 
-    const newGiven = updates.givenName !== undefined ? updates.givenName : existingGiven;
-    const newSurn = updates.surname !== undefined ? updates.surname : existingSurn;
-    const newNick = updates.nickname !== undefined ? updates.nickname : existingNick;
+    const newGiven = (updates.givenName !== undefined ? sanitizeGedcomInline(updates.givenName) : existingGiven).replace(/\//g, '').trim();
+    const newSurn = (updates.surname !== undefined ? sanitizeGedcomInline(updates.surname) : existingSurn).replace(/\//g, '').trim();
+    const newNick = updates.nickname !== undefined ? sanitizeGedcomInline(updates.nickname) : existingNick;
 
     const fullGedName = `${newGiven} /${newSurn}/`.trim();
 
@@ -425,7 +460,7 @@ export function updatePersonRecord(rawBlock, updates, personId) {
   if (updates.alternateNames !== undefined && Array.isArray(updates.alternateNames)) {
     for (const alt of updates.alternateNames) {
       if (!alt) continue;
-      const cleanAlt = alt.trim();
+      const cleanAlt = sanitizeGedcomInline(alt);
       if (!cleanAlt) continue;
 
       // Check if already exists in subNodes NAME nodes
@@ -456,14 +491,15 @@ export function updatePersonRecord(rawBlock, updates, personId) {
 
   // Update OCCU
   if (updates.occupation !== undefined) {
+    const cleanOccu = sanitizeGedcomInline(updates.occupation);
     let occuNode = subNodes.find(n => n.tag === 'OCCU');
-    if (updates.occupation) {
+    if (cleanOccu) {
       if (!occuNode) {
-        occuNode = { tag: 'OCCU', val: updates.occupation, raw: `1 OCCU ${updates.occupation}`, children: [] };
+        occuNode = { tag: 'OCCU', val: cleanOccu, raw: `1 OCCU ${cleanOccu}`, children: [] };
         subNodes.push(occuNode);
       } else {
-        occuNode.val = updates.occupation;
-        occuNode.raw = `1 OCCU ${updates.occupation}`;
+        occuNode.val = cleanOccu;
+        occuNode.raw = `1 OCCU ${cleanOccu}`;
       }
     } else if (occuNode) {
       const idx = subNodes.indexOf(occuNode);
@@ -473,14 +509,15 @@ export function updatePersonRecord(rawBlock, updates, personId) {
 
   // Update EDUC
   if (updates.education !== undefined) {
+    const cleanEduc = sanitizeGedcomInline(updates.education);
     let educNode = subNodes.find(n => n.tag === 'EDUC');
-    if (updates.education) {
+    if (cleanEduc) {
       if (!educNode) {
-        educNode = { tag: 'EDUC', val: updates.education, raw: `1 EDUC ${updates.education}`, children: [] };
+        educNode = { tag: 'EDUC', val: cleanEduc, raw: `1 EDUC ${cleanEduc}`, children: [] };
         subNodes.push(educNode);
       } else {
-        educNode.val = updates.education;
-        educNode.raw = `1 EDUC ${updates.education}`;
+        educNode.val = cleanEduc;
+        educNode.raw = `1 EDUC ${cleanEduc}`;
       }
     } else if (educNode) {
       const idx = subNodes.indexOf(educNode);
@@ -490,8 +527,11 @@ export function updatePersonRecord(rawBlock, updates, personId) {
 
   // Helper to update Event node (BIRT, DEAT, RESI)
   const updateEventNode = (tag, dateVal, placeVal, extraTag, extraVal) => {
+    const cleanDate = dateVal !== undefined ? sanitizeGedcomInline(dateVal) : undefined;
+    const cleanPlace = placeVal !== undefined ? sanitizeGedcomInline(placeVal) : undefined;
+    const cleanExtra = extraVal !== undefined ? sanitizeGedcomInline(extraVal) : undefined;
     let node = subNodes.find(n => n.tag === tag);
-    const hasInfo = Boolean(dateVal || placeVal || extraVal);
+    const hasInfo = Boolean(cleanDate || cleanPlace || cleanExtra);
     if (!hasInfo) return;
 
     if (!node) {
@@ -499,42 +539,42 @@ export function updatePersonRecord(rawBlock, updates, personId) {
       subNodes.push(node);
     }
 
-    if (dateVal !== undefined) {
+    if (cleanDate !== undefined) {
       let dNode = node.children.find(c => c.tag === 'DATE');
-      if (dateVal) {
+      if (cleanDate) {
         if (!dNode) {
-          node.children.push({ level: 2, tag: 'DATE', val: dateVal, raw: `2 DATE ${dateVal}` });
+          node.children.push({ level: 2, tag: 'DATE', val: cleanDate, raw: `2 DATE ${cleanDate}` });
         } else {
-          dNode.val = dateVal;
-          dNode.raw = `2 DATE ${dateVal}`;
+          dNode.val = cleanDate;
+          dNode.raw = `2 DATE ${cleanDate}`;
         }
       } else if (dNode) {
         node.children = node.children.filter(c => c.tag !== 'DATE');
       }
     }
 
-    if (placeVal !== undefined) {
+    if (cleanPlace !== undefined) {
       let pNode = node.children.find(c => c.tag === 'PLAC');
-      if (placeVal) {
+      if (cleanPlace) {
         if (!pNode) {
-          node.children.push({ level: 2, tag: 'PLAC', val: placeVal, raw: `2 PLAC ${placeVal}` });
+          node.children.push({ level: 2, tag: 'PLAC', val: cleanPlace, raw: `2 PLAC ${cleanPlace}` });
         } else {
-          pNode.val = placeVal;
-          pNode.raw = `2 PLAC ${placeVal}`;
+          pNode.val = cleanPlace;
+          pNode.raw = `2 PLAC ${cleanPlace}`;
         }
       } else if (pNode) {
         node.children = node.children.filter(c => c.tag !== 'PLAC');
       }
     }
 
-    if (extraTag && extraVal !== undefined) {
+    if (extraTag && cleanExtra !== undefined) {
       let xNode = node.children.find(c => c.tag === extraTag);
-      if (extraVal) {
+      if (cleanExtra) {
         if (!xNode) {
-          node.children.push({ level: 2, tag: extraTag, val: extraVal, raw: `2 ${extraTag} ${extraVal}` });
+          node.children.push({ level: 2, tag: extraTag, val: cleanExtra, raw: `2 ${extraTag} ${cleanExtra}` });
         } else {
-          xNode.val = extraVal;
-          xNode.raw = `2 ${extraTag} ${extraVal}`;
+          xNode.val = cleanExtra;
+          xNode.raw = `2 ${extraTag} ${cleanExtra}`;
         }
       } else if (xNode) {
         node.children = node.children.filter(c => c.tag !== extraTag);
@@ -609,14 +649,15 @@ export function updatePersonRecord(rawBlock, updates, personId) {
 
   // Helper for single text attribute (TITL, RELI, NATI, DSCR, IDNO)
   const updateAttributeNode = (tag, val) => {
+    const cleanVal = sanitizeGedcomInline(val);
     let node = subNodes.find(n => n.tag === tag);
-    if (val) {
+    if (cleanVal) {
       if (!node) {
-        node = { tag, val, raw: `1 ${tag} ${val}`, children: [] };
+        node = { tag, val: cleanVal, raw: `1 ${tag} ${cleanVal}`, children: [] };
         subNodes.push(node);
       } else {
-        node.val = val;
-        node.raw = `1 ${tag} ${val}`;
+        node.val = cleanVal;
+        node.raw = `1 ${tag} ${cleanVal}`;
       }
     } else if (node) {
       const idx = subNodes.indexOf(node);
@@ -651,26 +692,28 @@ export function updatePersonRecord(rawBlock, updates, personId) {
 
   // Update NOTE
   if (updates.notes !== undefined && Array.isArray(updates.notes)) {
-    // Keep non-NOTE subNodes and add new NOTE nodes
-    // First remove top-level NOTEs that are inline
     for (const noteText of updates.notes) {
       if (!noteText) continue;
-      // Check if already exists to avoid exact duplication
-      const exists = subNodes.some(n => n.tag === 'NOTE' && n.val === noteText);
+      const noteNode = createNoteNode(noteText);
+      if (!noteNode.val) continue;
+      const exists = subNodes.some(n => n.tag === 'NOTE' && n.val === noteNode.val);
       if (!exists) {
-        subNodes.push({ tag: 'NOTE', val: noteText, raw: `1 NOTE ${noteText}`, children: [] });
+        subNodes.push(noteNode);
       }
     }
   }
 
   // Update source as a dedicated NOTE (מקור)
   if (updates.source !== undefined && updates.source) {
-    const sourceNote = updates.source.startsWith('מקור:') || updates.source.startsWith('מקור :')
-      ? updates.source
-      : `מקור: ${updates.source}`;
-    const exists = subNodes.some(n => n.tag === 'NOTE' && n.val === sourceNote);
-    if (!exists) {
-      subNodes.push({ tag: 'NOTE', val: sourceNote, raw: `1 NOTE ${sourceNote}`, children: [] });
+    const cleanSource = sanitizeGedcomInline(updates.source);
+    if (cleanSource) {
+      const sourceNote = cleanSource.startsWith('מקור:') || cleanSource.startsWith('מקור :')
+        ? cleanSource
+        : `מקור: ${cleanSource}`;
+      const exists = subNodes.some(n => n.tag === 'NOTE' && n.val === sourceNote);
+      if (!exists) {
+        subNodes.push(createNoteNode(sourceNote));
+      }
     }
   }
 

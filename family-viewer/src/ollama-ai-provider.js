@@ -21,7 +21,22 @@ function setting(key, fallback) {
   }
 }
 
-export const getOllamaUrl = () => setting('anafim_ollama_url', DEFAULT_URL).replace(/\/+$/, '');
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Only allow local loopback Ollama URLs so tampered storage cannot exfiltrate family data. */
+export function validateOllamaUrl(rawUrl) {
+  try {
+    const parsed = new URL(String(rawUrl || '').trim());
+    if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && LOOPBACK_HOSTS.has(parsed.hostname)) {
+      return parsed.origin;
+    }
+  } catch {
+    // fall back to DEFAULT_URL
+  }
+  return DEFAULT_URL;
+}
+
+export const getOllamaUrl = () => validateOllamaUrl(setting('anafim_ollama_url', DEFAULT_URL));
 export const getOllamaModel = () => setting('anafim_ollama_model', DEFAULT_MODEL);
 
 let availability = { checkedAt: 0, ok: false };

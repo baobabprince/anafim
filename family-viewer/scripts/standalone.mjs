@@ -22,6 +22,7 @@ for (const font of await fs.readdir(path.join(root, 'public', 'fonts'))) {
 }
 const favicon = (await fs.readFile(path.join(root, 'public', 'favicon.svg'))).toString('base64');
 html = html.replace(/<link[^>]+rel="preload"[^>]*>/g, '');
+html = html.replace(/<meta[^>]+http-equiv="Content-Security-Policy"[^>]*>\s*/gi, '');
 html = html.replace(/<link[^>]+href="[^"]+\.css"[^>]*>/, () => `<style>${css}</style>`);
 html = html.replace(/<script[^>]+src="[^"]+"[^>]*><\/script>/, () => `<script type="module">${js.replace(/<\/script/gi, '<\\/script')}</script>`);
 html = html.replace('href="/favicon.svg"', `href="data:image/svg+xml;base64,${favicon}"`);

@@ -26,6 +26,56 @@ import {
 } from './ai-service.js';
 import { applyPersonUpdatesToGedcom } from './gedcom-ai-editor.js';
 
+const FIELD_LABELS = {
+  givenName: 'שם פרטי',
+  surname: 'שם משפחה',
+  nickname: 'כינוי',
+  alternateNames: 'שמות נוספים',
+  sex: 'מין',
+  birthDate: 'תאריך לידה',
+  birthPlace: 'מקום לידה',
+  deathDate: 'תאריך פטירה',
+  deathPlace: 'מקום פטירה',
+  deathCause: 'סיבת פטירה',
+  burialDate: 'תאריך קבורה',
+  burialPlace: 'מקום קבורה',
+  cremationDate: 'תאריך שריפה',
+  cremationPlace: 'מקום שריפה',
+  immigrationDate: 'תאריך עלייה / הגירה',
+  immigrationPlace: 'מקום עלייה',
+  emigrationDate: 'תאריך הגירה',
+  emigrationPlace: 'מקום הגירה',
+  naturalizationDate: 'תאריך התאזרחות',
+  naturalizationPlace: 'מקום התאזרחות',
+  barMitzvahDate: 'תאריך בר מצווה',
+  barMitzvahPlace: 'מקום בר מצווה',
+  batMitzvahDate: 'תאריך בת מצווה',
+  batMitzvahPlace: 'מקום בת מצווה',
+  baptismDate: 'תאריך טבילה',
+  baptismPlace: 'מקום טבילה',
+  graduationDate: 'תאריך סיום לימודים',
+  graduationPlace: 'מקום סיום לימודים',
+  retirementDate: 'תאריך פרישה',
+  retirementPlace: 'מקום פרישה',
+  occupation: 'עיסוק',
+  education: 'השכלה',
+  residencePlace: 'מקום מגורים',
+  residenceDate: 'תאריך מגורים',
+  title: 'תואר',
+  religion: 'דת',
+  nationality: 'לאום',
+  description: 'תיאור',
+  idNumber: 'מזהה / ת״ז',
+  notes: 'הערות',
+  source: 'מקור',
+};
+
+function formatDiffValue(val) {
+  if (Array.isArray(val)) return val.join(' · ') || '—';
+  const s = String(val ?? '').trim();
+  return s || '—';
+}
+
 export function EditPersonAiModal({
   isOpen,
   onClose,
@@ -39,6 +89,7 @@ export function EditPersonAiModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [debugInfo, setDebugInfo] = useState(null);
+  const [pendingUpdate, setPendingUpdate] = useState(null);
   const [activeProvider, setActiveProvider] = useState(null);
   const [progressInfo, setProgressInfo] = useState(null);
 
@@ -54,6 +105,7 @@ export function EditPersonAiModal({
       setText('');
       setError('');
       setDebugInfo(null);
+      setPendingUpdate(null);
       setProgressInfo(null);
       setKeyStatus(null);
 
@@ -136,6 +188,7 @@ export function EditPersonAiModal({
     setBusy(true);
     setError('');
     setDebugInfo(null);
+    setPendingUpdate(null);
     setProgressInfo(null);
 
     try {
@@ -169,22 +222,27 @@ export function EditPersonAiModal({
         return;
       }
 
-      // Apply changes to GEDCOM
+      // Prepare updated GEDCOM and show diff preview for user confirmation before saving
       const updatedRaw = applyPersonUpdatesToGedcom(bundle.raw, person.id, result.sanitized);
 
-      onApplyUpdate({
+      setPendingUpdate({
         updatedRaw,
         updates: result.sanitized,
         diff: result.diff,
       });
-
-      onClose();
     } catch (err) {
       console.error('[AI Editor] Failed:', err);
       setError(err.message || 'אירעה שגיאה בעיבוד הטקסט.');
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleConfirmPending = () => {
+    if (!pendingUpdate) return;
+    onApplyUpdate(pendingUpdate);
+    setPendingUpdate(null);
+    onClose();
   };
 
   return createPortal(
@@ -476,10 +534,43 @@ export function EditPersonAiModal({
               autoFocus
             />
             <span style={{ fontSize: 11, color: '#687b5a', display: 'block', marginTop: 4 }}>
-              ה-AI ינתח את הטקסט, יוודא תקינות מבנה GEDCOM ויעדכן רק את הרשומה של אדם זה.
-              במובייל עדיף Chrome במחשב עם AI מובנה — מודל מקומי דורש הורדה של ~120MB.
+              ה-AI ינתח את הטקסט, יציג תצוגה מקדימה של השינויים לאישור, ויעדכן רק את הרשומה של אדם זה.
+              {activeProvider?.isCloud
+                ? ' שים לב: במצב Google Gemini פרטי האדם והטקסט שתזין נשלחים לשרתי Google לעיבוד.'
+                : ' במובייל עדיף להזין מפתח Gemini או להשתמש ב-Chrome במחשב עם AI מובנה.'}
             </span>
           </div>
+
+          {pendingUpdate && (
+            <div
+              role="region"
+              aria-label="תצוגה מקדימה של השינויים"
+              style={{
+                marginBottom: 14,
+                padding: '12px 14px',
+                borderRadius: 10,
+                background: '#f5f9f0',
+                border: '1px solid #c6dab6',
+                fontSize: 12,
+              }}
+            >
+              <strong style={{ display: 'block', color: '#2e4a2b', marginBottom: 8 }}>
+                תצוגה מקדימה — יש לאשר לפני העדכון באילן:
+              </strong>
+              <ul style={{ margin: 0, paddingInlineStart: 18, display: 'grid', gap: 6 }}>
+                {Object.entries(pendingUpdate.diff).map(([field, change]) => (
+                  <li key={field} style={{ color: '#374c34', lineHeight: 1.5 }}>
+                    <strong>{FIELD_LABELS[field] || field}:</strong>{' '}
+                    <span style={{ color: '#838b7d', textDecoration: change.old && String(change.old).length ? 'line-through' : 'none' }}>
+                      {formatDiffValue(change.old)}
+                    </span>
+                    {' ← '}
+                    <strong style={{ color: '#24521f' }}>{formatDiffValue(change.new)}</strong>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Progress Indicator when downloading local model or processing */}
           {busy && (
@@ -690,21 +781,34 @@ export function EditPersonAiModal({
             <button
               type="button"
               className="button button-white"
-              onClick={onClose}
+              onClick={pendingUpdate ? () => setPendingUpdate(null) : onClose}
               disabled={busy}
               style={{ minHeight: 40 }}
             >
-              ביטול
+              {pendingUpdate ? 'חזרה לעריכה' : 'ביטול'}
             </button>
-            <button
-              type="submit"
-              className="button button-primary"
-              disabled={!text.trim() || busy}
-              style={{ minHeight: 40 }}
-            >
-              {busy ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />}
-              <span>{busy ? 'מעבד נתונים...' : 'עדכן פרטים'}</span>
-            </button>
+            {pendingUpdate ? (
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={handleConfirmPending}
+                disabled={busy}
+                style={{ minHeight: 40 }}
+              >
+                <Check size={17} />
+                <span>אישור ועדכון באילן</span>
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="button button-primary"
+                disabled={!text.trim() || busy}
+                style={{ minHeight: 40 }}
+              >
+                {busy ? <LoaderCircle className="spin" size={17} /> : <Sparkles size={17} />}
+                <span>{busy ? 'מעבד נתונים...' : 'בדיקה ותצוגה מקדימה'}</span>
+              </button>
+            )}
           </div>
         </form>
       </div>

@@ -6,7 +6,7 @@ import CloudAccess from './CloudAccess.jsx';
 import { DEMO_TEXT, DEMO_ROOT } from './demo.js';
 import { DEMO_PHOTOS } from './demo-photos.js';
 import { importGedcomFile, MAX_FILE_BYTES } from './import-gedcom.js';
-import { saveSharedExport, loadSharedExport, hasSharedExport, formatSharedSummary } from './baobab-shared-storage.js';
+import { saveSharedExport, loadSharedExport, clearSharedExport, hasSharedExport, formatSharedSummary } from './baobab-shared-storage.js';
 import { parseGedcom, parseGedcomAsync, getRelations, formatDate, lifeLabel, initials, normalize, getYear, pedigreeLabel } from './gedcom.js';
 import { isWindowAiAvailable } from './ai-service.js';
 import { useI18n } from './i18n/I18nContext.jsx';
@@ -434,7 +434,7 @@ function SearchBar({data, query, setQuery, onSelect, onDirectory }) {
   }, []);
   const choose = p => { onSelect(p.id); setQuery(''); setOpen(false); input.current?.blur(); };
   const showResults = () => { onDirectory(); setOpen(false); input.current?.blur(); };
-  return <div className="search-wrapper" ref={wrapper}><div className={`search-bar ${open ? 'search-focused' : ''}`}><Search size={20} className="search-icon"/><input ref={input} type="search" placeholder="את מי תרצו להכיר? חפשו שם, מקום או שנה" value={query} onChange={e => { setQuery(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} aria-label="חיפוש אדם לפי שם, מקום או שנה" role="combobox" aria-expanded={open && !!query.trim()} aria-autocomplete="list" aria-controls="search-results" aria-activedescendant={active >= 0 ? `search-result-${active}` : undefined} onKeyDown={e => { if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive(i => Math.min(i + 1, results.length - 1)); } if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); } if (e.key === 'Escape') { setOpen(false); input.current?.blur(); } if (e.key === 'Enter') { e.preventDefault(); if (active >= 0 && results[active]) choose(results[active]); else showResults(); } }}/>{query ? <button className="icon-button search-clear" onClick={() => { setQuery(''); input.current?.focus(); }} aria-label="{t('common.clearSearch')}"><X size={17}/></button> : <kbd className="search-shortcut">/</kbd>}<div className="search-divider"/><button className="search-directory" onClick={showResults} aria-label="{t('people.showAll')}"><UsersRound size={17}/><span>{t('nav.people')}</span><span className="search-count">{number(data.stats.people)}</span><ChevronLeft size={16}/></button></div>
+  return <div className="search-wrapper" ref={wrapper}><div className={`search-bar ${open ? 'search-focused' : ''}`}><Search size={20} className="search-icon"/><input ref={input} type="search" placeholder="את מי תרצו להכיר? חפשו שם, מקום או שנה" value={query} onChange={e => { setQuery(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} aria-label="חיפוש אדם לפי שם, מקום או שנה" role="combobox" aria-expanded={open && !!query.trim()} aria-autocomplete="list" aria-controls="search-results" aria-activedescendant={active >= 0 ? `search-result-${active}` : undefined} onKeyDown={e => { if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive(i => Math.min(i + 1, results.length - 1)); } if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); } if (e.key === 'Escape') { setOpen(false); input.current?.blur(); } if (e.key === 'Enter') { e.preventDefault(); if (active >= 0 && results[active]) choose(results[active]); else showResults(); } }}/>{query ? <button className="icon-button search-clear" onClick={() => { setQuery(''); input.current?.focus(); }} aria-label={t('common.clearSearch')}><X size={17}/></button> : <kbd className="search-shortcut">/</kbd>}<div className="search-divider"/><button className="search-directory" onClick={showResults} aria-label={t('people.showAll')}><UsersRound size={17}/><span>{t('nav.people')}</span><span className="search-count">{number(data.stats.people)}</span><ChevronLeft size={16}/></button></div>
     {open && query.trim() && <div className="search-results" id="search-results" role="listbox" aria-label="תוצאות חיפוש"><div className="search-results-heading">{total ? `${number(total)} אנשים מתאימים` : 'עוד לא מצאנו התאמה'}</div>{results.map((p,i) => <button id={`search-result-${i}`} key={p.id} role="option" aria-selected={active === i} className={`search-result ${active === i ? 'is-active' : ''}`} onClick={() => choose(p)}><Avatar person={p} size="sm"/><span><strong>{p.name}</strong><small>{lifeLabel(p)}{p.birth?.place ? ` · ${p.birth.place}` : ''}</small></span><CornerDownLeft size={16}/></button>)}{!results.length && <div className="search-empty"><Search size={25}/><p>נסו שם אחר, שם משפחה או מקום לידה.</p></div>}{!!total && <button className="all-results" onClick={showResults}>הצגת כל התוצאות<ArrowLeft size={15}/></button>}</div>}
   </div>;
 }
@@ -1266,9 +1266,13 @@ export default function App() {
     try {
       if (bundle.id && bundle.id !== 'demo') {
         removeFileFromLocalStorage(bundle.id);
+        deleteBundlePhotos(bundle.id).catch(() => {});
+      }
+      if (loadSharedExport()?.source === 'anafim') {
+        clearSharedExport();
       }
     } catch {}
-    const demo=demoBundle();setBundle(demo);setHistory({ids:[DEMO_ROOT],cursor:0});setView('family');setQuery('');setParentFamily('');setModal(null);setMobileMenu(false);
+    const demo=demoBundle();setBundle(demo);setHistory({ids:[DEMO_ROOT],cursor:0});setView('family');setQuery('');setParentFamily('');setModal(null);setMobileMenu(false);forceUnlockBodyScroll();
   };
   const navItems = [{id:'family',icon:Network},{id:'people',icon:UsersRound},{id:'file',icon:FileText}];
   return (

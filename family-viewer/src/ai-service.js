@@ -265,7 +265,9 @@ export async function analyzePersonTextWithAi(
   }
 
   rawResponse = normalizeAiText(rawResponse);
-  console.log(`[AI Editor] Raw response received (${usedProvider}):\n`, rawResponse);
+  if (devMode) {
+    console.log(`[AI Editor] Raw response received (${usedProvider}):\n`, rawResponse);
+  }
 
   // Extract JSON from response
   let jsonString = rawResponse.trim();
@@ -285,7 +287,9 @@ export async function analyzePersonTextWithAi(
     parsedJson = JSON.parse(jsonString);
   } catch (parseError) {
     const errorMsg = 'שגיאה בפענוח JSON מתשובת ה-AI: ' + parseError.message;
-    console.warn('[AI Editor] JSON parse failure:', parseError, 'Raw text:', jsonString);
+    if (devMode) {
+      console.warn('[AI Editor] JSON parse failure:', parseError, 'Raw text:', jsonString);
+    }
     return {
       valid: false,
       errors: [errorMsg],
@@ -297,10 +301,12 @@ export async function analyzePersonTextWithAi(
     };
   }
 
-  console.log('[AI Editor] Parsed JSON from AI:', parsedJson);
+  if (devMode) {
+    console.log('[AI Editor] Parsed JSON from AI:', parsedJson);
+  }
 
   const { cleaned, dropped } = cleanAiUpdates(parsedJson);
-  if (dropped.length) console.warn('[AI Editor] Ignored empty/unknown fields:', dropped);
+  if (devMode && dropped.length) console.warn('[AI Editor] Ignored empty/unknown fields:', dropped);
   parsedJson = cleaned;
 
   const validation = validatePersonUpdates(parsedJson, {
@@ -316,12 +322,14 @@ export async function analyzePersonTextWithAi(
     notes: person.notes,
   });
 
-  console.log('[AI Editor] Validation result:', validation.valid ? 'VALID' : 'INVALID');
-  if (!validation.valid) {
-    console.warn('[AI Editor] Validation errors:', validation.errors);
-    console.warn('[AI Editor] Diff with errors:', validation.diff);
-  } else {
-    console.log('[AI Editor] Calculated diff:', validation.diff);
+  if (devMode) {
+    console.log('[AI Editor] Validation result:', validation.valid ? 'VALID' : 'INVALID');
+    if (!validation.valid) {
+      console.warn('[AI Editor] Validation errors:', validation.errors);
+      console.warn('[AI Editor] Diff with errors:', validation.diff);
+    } else {
+      console.log('[AI Editor] Calculated diff:', validation.diff);
+    }
   }
 
   return {
