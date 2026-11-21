@@ -2,6 +2,11 @@ const DATABASE = 'anafim-photos-v1';
 const STORE = 'photos';
 export const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
 let databasePromise;
+const bundlePhotoIdsCache = new Map();
+
+function invalidateBundlePhotoCache(fileId) {
+  if (fileId) bundlePhotoIdsCache.delete(fileId);
+}
 
 const IMAGE_TYPES = new Set([
   'image/avif',
@@ -111,6 +116,7 @@ export function savePersonPhotos(fileId, personId, blobs) {
   if (!fileId || !personId || !Array.isArray(blobs) || !blobs.length || blobs.some(blob => !(blob instanceof Blob))) {
     return Promise.reject(new Error('פרטי התמונה לשמירה אינם תקינים.'));
   }
+  invalidateBundlePhotoCache(fileId);
   return withStore('readwrite', store => {
     store.put({ key: photoKey(fileId, personId), fileId, personId, photos:blobs });
   });
@@ -120,6 +126,7 @@ export function addPersonPhotos(fileId, personId, blobs) {
   if (!fileId || !personId || !Array.isArray(blobs) || !blobs.length || blobs.some(blob => !(blob instanceof Blob))) {
     return Promise.reject(new Error('פרטי התמונות לשמירה אינם תקינים.'));
   }
+  invalidateBundlePhotoCache(fileId);
   return withStore('readwrite', store => {
     const key = photoKey(fileId, personId);
     const request = store.get(key);
@@ -128,6 +135,38 @@ export function addPersonPhotos(fileId, personId, blobs) {
       store.put({ key, fileId, personId, photos:[...current, ...blobs] });
     };
   });
+}
+
+/** Return the set of person IDs in a bundle that have stored photos (cached per fileId). */
+export function getBundlePhotoPersonIds(fileId) {
+  if (!fileId) return Promise.resolve(new Set());
+  if (!bundlePhotoIdsCache.has(fileId)) {
+    const prefix = `${fileId}\u0000`;
+    const promise = openDatabase().then(db => new Promise((resolve, reject) => {
+      let request;
+      try {
+        request = db.transaction(STORE, 'readonly').objectStore(STORE).index('fileId').getAllKeys(IDBKeyRange.only(fileId));
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      request.onsuccess = () => {
+        const ids = new Set();
+        for (const key of request.result || []) {
+          if (typeof key === 'string' && key.startsWith(prefix)) {
+            ids.add(key.slice(prefix.length));
+          }
+        }
+        resolve(ids);
+      };
+      request.onerror = () => reject(request.error || new Error('לא ניתן לקרוא את רשימת התמונות מהאחסון המקומי.'));
+    })).catch(error => {
+      bundlePhotoIdsCache.delete(fileId);
+      throw error;
+    });
+    bundlePhotoIdsCache.set(fileId, promise);
+  }
+  return bundlePhotoIdsCache.get(fileId);
 }
 
 export function getPersonPhotos(fileId, personId) {
@@ -147,6 +186,7 @@ export function getPersonPhotos(fileId, personId) {
 
 export function deletePersonPhoto(fileId, personId, photoIndex) {
   if (!fileId || !personId) return Promise.resolve();
+  invalidateBundlePhotoCache(fileId);
   return withStore('readwrite', store => {
     const key = photoKey(fileId, personId);
     if (!Number.isInteger(photoIndex)) {
@@ -166,6 +206,7 @@ export function deletePersonPhoto(fileId, personId, photoIndex) {
 
 export function deleteBundlePhotos(fileId) {
   if (!fileId) return Promise.resolve();
+  invalidateBundlePhotoCache(fileId);
   return withStore('readwrite', store => {
     const request = store.index('fileId').openKeyCursor(IDBKeyRange.only(fileId));
     request.onsuccess = () => {

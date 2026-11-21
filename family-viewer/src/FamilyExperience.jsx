@@ -12,7 +12,7 @@ import { findRelationshipPath, formatDate, formatDateCentral, getRelations, getY
 import { ATTRIBUTE_NAMES, branchPeople, eventTitle, personInformation, personRecord } from './person-info.js';
 import { t, getLang } from './i18n/index.js';
 import { usePersonPhoto, usePersonPhotos } from './PersonPhotoContext.jsx';
-import { lockBodyScroll, unlockBodyScroll } from './scroll-lock.js';
+import { acquireBodyScrollLock, restoreFocusSafely } from './scroll-lock.js';
 
 const count = n => n.toLocaleString(getLang() === 'en' ? 'en-US' : 'he-IL');
 const shortId = id => id.replaceAll('@','');
@@ -107,11 +107,11 @@ function PhotoGallery({ person, photos, index, setIndex, onClose, onAdd, onRemov
   const closeButton = useRef(null);
   useEffect(() => {
     const previousFocus = document.activeElement;
-    lockBodyScroll();
-    closeButton.current?.focus();
+    const releaseScrollLock = acquireBodyScrollLock();
+    closeButton.current?.focus?.({ preventScroll: true });
     return () => {
-      unlockBodyScroll();
-      previousFocus?.focus?.();
+      releaseScrollLock();
+      restoreFocusSafely(previousFocus);
     };
   }, []);
   useEffect(() => {
@@ -201,15 +201,15 @@ function RelationshipPathDialog({ data, currentPerson, onClose, onSelect }) {
   );
   useEffect(() => {
     const previousFocus = document.activeElement;
-    lockBodyScroll();
-    closeButton.current?.focus();
+    const releaseScrollLock = acquireBodyScrollLock();
+    closeButton.current?.focus?.({ preventScroll: true });
     const handleKeyDown = event => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
-      unlockBodyScroll();
-      previousFocus?.focus?.();
+      releaseScrollLock();
+      restoreFocusSafely(previousFocus);
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [onClose]);

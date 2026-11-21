@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { acquireBodyScrollLock, restoreFocusSafely } from './scroll-lock.js';
 import {
   Pencil,
   X,
@@ -67,6 +69,16 @@ export function EditPersonAiModal({
       });
     }
   }, [isOpen, person.id]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus = document.activeElement;
+    const releaseScrollLock = acquireBodyScrollLock();
+    return () => {
+      releaseScrollLock();
+      restoreFocusSafely(previousFocus);
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -175,7 +187,7 @@ export function EditPersonAiModal({
     }
   };
 
-  return (
+  return createPortal(
     <div
       className="modal-backdrop"
       onMouseDown={(e) => {
@@ -696,6 +708,7 @@ export function EditPersonAiModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

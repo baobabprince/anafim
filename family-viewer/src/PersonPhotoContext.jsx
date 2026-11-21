@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { getPersonPhotos } from './photo-storage.js';
+import { getBundlePhotoPersonIds, getPersonPhotos } from './photo-storage.js';
 
 export const PersonPhotoContext = createContext(null);
 
@@ -19,7 +19,13 @@ export function usePersonPhotos(personId, notifyError = false, limit = Infinity)
     const hasTransient = transientPhotos && Object.hasOwn(transientPhotos, personId);
     const load = async () => {
       try {
-        const storedPhotos = remembered ? await getPersonPhotos(bundleId, personId) : [];
+        let storedPhotos = [];
+        if (remembered && bundleId) {
+          const storedIds = await getBundlePhotoPersonIds(bundleId);
+          if (storedIds.has(personId)) {
+            storedPhotos = await getPersonPhotos(bundleId, personId);
+          }
+        }
         const temporaryPhotos = hasTransient
           ? Array.isArray(transientPhotos[personId]) ? transientPhotos[personId] : [transientPhotos[personId]]
           : [];

@@ -13,7 +13,7 @@ import { useI18n } from './i18n/I18nContext.jsx';
 import LangToggle from './i18n/LangToggle.jsx';
 import { PersonPhotoContext, usePersonPhoto } from './PersonPhotoContext.jsx';
 import { addPersonPhotos, deleteBundlePhotos, deletePersonPhoto, getPersonPhotos, resolveGedcomPhotos, savePersonPhotos, validatePhotoFile } from './photo-storage.js';
-import { lockBodyScroll, unlockBodyScroll, forceUnlockBodyScroll } from './scroll-lock.js';
+import { acquireBodyScrollLock, forceUnlockBodyScroll, syncBodyScrollLock, restoreFocusSafely } from './scroll-lock.js';
 
 const STORAGE_FILES_KEY = 'anafim-saved-files-v1';
 const STORAGE_ACTIVE_ID_KEY = 'anafim-active-file-id-v1';
@@ -230,7 +230,7 @@ function Dialog({title, subtitle, children, onClose, className = '' }) {
   onCloseRef.current = onClose;
   useEffect(() => {
     const previous = document.activeElement;
-    lockBodyScroll();
+    const releaseScrollLock = acquireBodyScrollLock();
     const handleKey = e => {
       if (e.key === 'Escape') { e.preventDefault(); onCloseRef.current(); }
       if (e.key === 'Tab') {
@@ -242,8 +242,8 @@ function Dialog({title, subtitle, children, onClose, className = '' }) {
       }
     };
     document.addEventListener('keydown', handleKey);
-    ref.current?.querySelector('button')?.focus();
-    return () => { unlockBodyScroll(); document.removeEventListener('keydown', handleKey); previous?.focus?.(); };
+    ref.current?.querySelector('button')?.focus?.({ preventScroll: true });
+    return () => { releaseScrollLock(); document.removeEventListener('keydown', handleKey); restoreFocusSafely(previous); };
   }, []);
   return createPortal(<div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><section className={`dialog ${className}`} role="dialog" aria-modal="true" aria-labelledby="dialog-title" ref={ref}><button className="icon-button dialog-close" onClick={onClose} aria-label={t('common.close')}><X size={20}/></button><div className="dialog-heading"><span className="dialog-icon"><Sprout size={26}/></span><h2 id="dialog-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{children}</section></div>, document.body);
 }
@@ -312,7 +312,6 @@ function UploadDialog({ onClose, onImport, onDemo }) {
       const imported = { ...preparedImport, remembered:remember };
       try {
         await onImport(imported);
-        pushToBaobabShared(imported);
       } catch (error) {
         setBusy(false);
         setError({ message:error.message || 'לא הצלחנו לפתוח את האילן.', code:error.code || 'IMPORT_FAILED' });
@@ -340,7 +339,6 @@ function UploadDialog({ onClose, onImport, onDemo }) {
           setBusy(false);
         } else {
           await onImport(imported);
-          pushToBaobabShared(imported);
         }
       }
     } catch (error) {
@@ -1074,8 +1072,8 @@ export default function App() {
   useEffect(() => {
     if (!mobileMenu) return;
     const previous = document.activeElement;
-    lockBodyScroll();
-    menuRef.current?.querySelector('button')?.focus();
+    const releaseScrollLock = acquireBodyScrollLock();
+    menuRef.current?.querySelector('button')?.focus?.({ preventScroll: true });
     const key = e => {
       if (e.key === 'Escape') setMobileMenu(false);
       if (e.key === 'Tab') {
@@ -1085,15 +1083,18 @@ export default function App() {
       }
     };
     document.addEventListener('keydown',key);
-    return () => { document.removeEventListener('keydown',key); unlockBodyScroll(); previous?.focus?.(); };
+    return () => { document.removeEventListener('keydown',key); releaseScrollLock(); restoreFocusSafely(previous); };
   }, [mobileMenu]);
-  const scrollToFamily = () => { requestAnimationFrame(() => { if (window.innerWidth < 900) document.getElementById('family-title')?.scrollIntoView({ behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block:'start' }); }); };
+  useEffect(() => {
+    if (!modal && !mobileMenu) syncBodyScrollLock();
+  }, [bundle, view, modal, mobileMenu]);
+  const scrollToFamily = () => { requestAnimationFrame(() => { syncBodyScrollLock(); if (window.innerWidth < 900) document.getElementById('family-title')?.scrollIntoView({ behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block:'start' }); }); };
   const selectPerson = useCallback(id => {
     if (!bundle.data.people[id]) return;
     setHistory(h => h.ids[h.cursor] === id ? h : { ids:[...h.ids.slice(0,h.cursor + 1),id], cursor:h.cursor + 1 });
     setView('family'); setQuery(''); setParentFamily(''); setMobileMenu(false); scrollToFamily();
   }, [bundle.data]);
-  const changeView = value => { setView(value); setMobileMenu(false); if (value !== 'people') setQuery(''); window.scrollTo({ top:0, behavior:'instant' }); };
+  const changeView = value => { setView(value); setMobileMenu(false); if (value !== 'people') setQuery(''); requestAnimationFrame(() => { syncBodyScrollLock(); window.scrollTo(0, 0); }); };
   const goHistory = delta => { setHistory(h => ({ ...h, cursor:Math.min(Math.max(h.cursor + delta,0),h.ids.length - 1) })); setParentFamily(''); scrollToFamily(); };
   const resetSelection = () => { selectPerson(bundle.isDemo ? DEMO_ROOT : bundle.data.order[0]); setToast('חזרנו לאדם הראשון באילן'); };
   const loadBundle = async next => {
@@ -1127,7 +1128,7 @@ export default function App() {
       setActiveFileIdInStorage(result.id);
     }
     if (photosSavedError) result.photosSavedError = photosSavedError;
-    setBundle(result); setHistory({ ids:[result.isDemo ? DEMO_ROOT : result.data.order[0]], cursor:0 }); setQuery(''); setParentFamily(''); setView('family'); setModal(null); setMobileMenu(false); forceUnlockBodyScroll(); window.scrollTo({top:0,behavior:'instant'});
+    setBundle(result); setHistory({ ids:[result.isDemo ? DEMO_ROOT : result.data.order[0]], cursor:0 }); setQuery(''); setParentFamily(''); setView('family'); setModal(null); setMobileMenu(false); forceUnlockBodyScroll(); requestAnimationFrame(() => { forceUnlockBodyScroll(); window.scrollTo(0, 0); });
     setPhotoRevision(revision => revision + 1);
     if (result.photosSavedError) setToast(result.photosSavedError);
     else if (bundleSavedError) setToast(bundleSavedError);
@@ -1316,7 +1317,7 @@ export default function App() {
         </div>
         <div className="sidebar-privacy"><ShieldCheck size={14}/><span>{t('nav.privacyLine')}</span></div>
         <div className="sidebar-cloud sidebar-cloud-secondary">
-          <CloudAccess Dialog={Dialog} bundle={bundle} selectedId={person.id} onApplySnapshot={applyCloudSnapshot} onClear={clearCloudView} onUpload={()=>setModal('upload')} isModalOpen={!!modal}/>
+          <CloudAccess Dialog={Dialog} bundle={bundle} selectedId={person.id} onApplySnapshot={applyCloudSnapshot} onClear={clearCloudView} onUpload={()=>{ setMobileMenu(false); setModal('upload'); }} isModalOpen={!!modal}/>
         </div>
       </aside>
       <main className="main-content" id="main-content">

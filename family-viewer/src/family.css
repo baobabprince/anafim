@@ -31,7 +31,7 @@ button.fx-canvas-caption{min-height:30px;padding:3px 9px;border-radius:5px}butto
 .fx-relative-scroll-section{margin-bottom:10px}
 .fx-relative-title-row{display:flex;align-items:center;gap:7px;margin-bottom:6px;padding-inline:2px}
 .fx-relative-title-row strong{font-size:12px;font-weight:600;color:#4a5a3e}
-.fx-relative-scroll{display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scroll-snap-type:x mandatory;padding:4px 2px 10px;scrollbar-width:thin}
+.fx-relative-scroll{display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;touch-action:pan-x pan-y;scroll-snap-type:x proximity;padding:4px 2px 10px;scrollbar-width:thin}
 .fx-relative-scroll::-webkit-scrollbar{height:4px}
 .fx-relative-scroll::-webkit-scrollbar-thumb{background:#c5b8a0;border-radius:4px}
 .fx-relative-scroll-item{flex:0 0 auto;scroll-snap-align:start;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:96px;max-width:120px;padding:8px 8px 10px;border-radius:12px;border:1px solid #e4e0d4;background:#fffcf7;text-align:center;color:inherit}
@@ -202,3 +202,5 @@ button.fx-canvas-caption{min-height:30px;padding:3px 9px;border-radius:5px}butto
 .fx-path-connection>span{width:1px;height:12px;background:#a9bc9c}
 .fx-path-connection small{max-width:min(360px,calc(100vw - 72px));padding:4px 9px;border-radius:999px;background:#f0f3eb;color:#506348;font-size:10px;text-align:center}
 @media(max-width:600px){.fx-path-backdrop{padding:10px}.fx-path-dialog{max-height:calc(100dvh - 20px);border-radius:12px}.fx-path-heading{padding:12px}.fx-path-heading h2{font-size:16px}.fx-path-pickers{grid-template-columns:1fr;gap:12px;padding:12px}.fx-path-result{padding:4px 12px 14px}}
+.fx-gallery-dialog,.fx-path-dialog{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.fx-gallery-backdrop,.fx-path-backdrop{overscroll-behavior:contain}
