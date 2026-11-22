@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'family-viewer/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'family-viewer/**'
+      - '.github/workflows/ci.yml'
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: family-viewer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: family-viewer/package-lock.json
+
+      - name: Install dependencies
+        env:
+          npm_config_onnxruntime_node_install_cuda: skip
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          npm ci --onnxruntime-node-install-cuda=skip || npm ci --ignore-scripts
+          if [ -f node_modules/onnxruntime-node/script/install.js ]; then
+            node -e "process.env.npm_config_onnxruntime_node_install_cuda='skip'; require('./node_modules/onnxruntime-node/script/install.js')" || true
+          fi
+
+      - name: Run unit tests
+        run: node --test tests/security-hardening.test.js tests/scroll-lock.test.js tests/gedcom-ai-editor.test.js tests/gedcom.test.js tests/import.test.js tests/encoding.test.js tests/person-info.test.js tests/photo-storage.test.js tests/multi-file-storage.test.js tests/pwa.test.js tests/vault-crypto.test.js tests/cloud-service.test.js
+
+      - name: Build production bundle
+        run: npm run build
