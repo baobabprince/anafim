@@ -24,7 +24,7 @@ import {
   removeGeminiApiKey,
   testGeminiApiKey,
 } from './ai-service.js';
-import { applyPersonUpdatesToGedcom } from './gedcom-ai-editor.js';
+import { applyPersonUpdatesToGedcom, validatePersonUpdates } from './gedcom-ai-editor.js';
 
 const FIELD_LABELS = {
   givenName: 'שם פרטי',
@@ -85,7 +85,23 @@ export function EditPersonAiModal({
   devMode,
   setDevMode,
 }) {
+  const [mode, setMode] = useState('ai');
   const [text, setText] = useState('');
+  const [manualForm, setManualForm] = useState({
+    givenName: '',
+    surname: '',
+    sex: 'U',
+    birthDate: '',
+    birthPlace: '',
+    deathDate: '',
+    deathPlace: '',
+    deathCause: '',
+    occupation: '',
+    residencePlace: '',
+    title: '',
+    note: '',
+    source: '',
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [debugInfo, setDebugInfo] = useState(null);
@@ -108,6 +124,23 @@ export function EditPersonAiModal({
       setPendingUpdate(null);
       setProgressInfo(null);
       setKeyStatus(null);
+      const latestResidence = [...(person.events || [])].reverse().find(e => e.type === 'RESI');
+      const titleAttr = (person.attributes || []).find(a => a.type === 'TITL')?.value || '';
+      setManualForm({
+        givenName: person.given || '',
+        surname: person.surname || '',
+        sex: ['M', 'F', 'U'].includes(person.sex) ? person.sex : 'U',
+        birthDate: person.birth?.date || '',
+        birthPlace: person.birth?.place || '',
+        deathDate: person.death?.date || '',
+        deathPlace: person.death?.place || '',
+        deathCause: person.death?.cause || '',
+        occupation: person.occupation || '',
+        residencePlace: latestResidence?.place || latestResidence?.detail || '',
+        title: titleAttr,
+        note: '',
+        source: '',
+      });
 
       const savedKey = getGeminiApiKey();
       setApiKey(savedKey);
@@ -245,6 +278,60 @@ export function EditPersonAiModal({
     onClose();
   };
 
+  const handleManualSubmit = (e) => {
+    e?.preventDefault();
+    if (busy) return;
+    setError('');
+    const latestResidence = [...(person.events || [])].reverse().find(ev => ev.type === 'RESI');
+    const currentResidence = latestResidence?.place || latestResidence?.detail || '';
+    const currentTitle = (person.attributes || []).find(a => a.type === 'TITL')?.value || '';
+    const rawUpdates = {};
+    if (manualForm.givenName.trim() !== (person.given || '').trim()) rawUpdates.givenName = manualForm.givenName;
+    if (manualForm.surname.trim() !== (person.surname || '').trim()) rawUpdates.surname = manualForm.surname;
+    if (manualForm.sex !== (['M', 'F', 'U'].includes(person.sex) ? person.sex : 'U')) rawUpdates.sex = manualForm.sex;
+    if (manualForm.birthDate.trim() !== (person.birth?.date || '').trim()) rawUpdates.birthDate = manualForm.birthDate;
+    if (manualForm.birthPlace.trim() !== (person.birth?.place || '').trim()) rawUpdates.birthPlace = manualForm.birthPlace;
+    if (manualForm.deathDate.trim() !== (person.death?.date || '').trim()) rawUpdates.deathDate = manualForm.deathDate;
+    if (manualForm.deathPlace.trim() !== (person.death?.place || '').trim()) rawUpdates.deathPlace = manualForm.deathPlace;
+    if (manualForm.deathCause.trim() !== (person.death?.cause || '').trim()) rawUpdates.deathCause = manualForm.deathCause;
+    if (manualForm.occupation.trim() !== (person.occupation || '').trim()) rawUpdates.occupation = manualForm.occupation;
+    if (manualForm.residencePlace.trim() !== currentResidence.trim()) rawUpdates.residencePlace = manualForm.residencePlace;
+    if (manualForm.title.trim() !== currentTitle.trim()) rawUpdates.title = manualForm.title;
+    if (manualForm.note.trim()) rawUpdates.notes = [manualForm.note];
+    if (manualForm.source.trim()) rawUpdates.source = manualForm.source;
+
+    if (!Object.keys(rawUpdates).length) {
+      setError('לא בוצעו שינויים בשדות.');
+      return;
+    }
+
+    const validation = validatePersonUpdates(rawUpdates, {
+      givenName: person.given,
+      surname: person.surname,
+      sex: person.sex,
+      birthDate: person.birth?.date,
+      birthPlace: person.birth?.place,
+      deathDate: person.death?.date,
+      deathPlace: person.death?.place,
+      deathCause: person.death?.cause,
+      occupation: person.occupation,
+      residencePlace: currentResidence,
+      title: currentTitle,
+      notes: person.notes,
+    });
+    if (!validation.valid) {
+      setError(validation.errors.join(' | '));
+      return;
+    }
+    try {
+      const updatedRaw = applyPersonUpdatesToGedcom(bundle.raw, person.id, validation.sanitized);
+      onApplyUpdate({ updatedRaw, updates: validation.sanitized, diff: validation.diff });
+      onClose();
+    } catch (err) {
+      setError(err.message || 'שגיאה בשמירת השינויים.');
+    }
+  };
+
   return createPortal(
     <div
       className="modal-backdrop"
@@ -278,12 +365,108 @@ export function EditPersonAiModal({
           <span className="dialog-icon" style={{ background: '#f5eee6', color: '#8d5b43' }}>
             <Pencil size={22} />
           </span>
-          <h2 id="ai-edit-title">עריכת פרטים באמצעות AI</h2>
+          <h2 id="ai-edit-title">{mode === 'manual' ? 'עריכת פרטים ידנית' : 'עריכת פרטים באמצעות AI'}</h2>
           <p>
-            עדכון נתונים עבור <strong dir="auto">{person.name}</strong> על בסיס טקסט חופשי (עברית או אנגלית).
+            עדכון נתונים עבור <strong dir="auto">{person.name}</strong>{' '}
+            {mode === 'manual' ? '— עובד במכשיר בלבד, גם ללא חיבור לאינטרנט.' : 'על בסיס טקסט חופשי (עברית או אנגלית).'}
           </p>
         </div>
 
+        <div className="edit-mode-tabs" role="tablist" aria-label="מצב עריכה">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'manual'}
+            className={mode === 'manual' ? 'selected' : ''}
+            disabled={busy}
+            onClick={() => { setMode('manual'); setError(''); setPendingUpdate(null); }}
+          >
+            עריכה ידנית (אופליין)
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'ai'}
+            className={mode === 'ai' ? 'selected' : ''}
+            disabled={busy}
+            onClick={() => { setMode('ai'); setError(''); }}
+          >
+            עריכה חופשית עם AI
+          </button>
+        </div>
+
+        {mode === 'manual' ? (
+          <form onSubmit={handleManualSubmit}>
+            <div className="manual-edit-grid">
+              <div className="manual-edit-field">
+                <label htmlFor="manual-given">שם פרטי</label>
+                <input id="manual-given" value={manualForm.givenName} onChange={e => setManualForm(f => ({ ...f, givenName: e.target.value }))} />
+              </div>
+              <div className="manual-edit-field">
+                <label htmlFor="manual-surname">שם משפחה</label>
+                <input id="manual-surname" value={manualForm.surname} onChange={e => setManualForm(f => ({ ...f, surname: e.target.value }))} />
+              </div>
+              <div className="manual-edit-field">
+                <label htmlFor="manual-sex">מין</label>
+                <select id="manual-sex" value={manualForm.sex} onChange={e => setManualForm(f => ({ ...f, sex: e.target.value }))}>
+                  <option value="U">לא ידוע</option>
+                  <option value="F">נקבה</option>
+                  <option value="M">זכר</option>
+                </select>
+              </div>
+              <div className="manual-edit-field">
+                <label htmlFor="manual-occu">עיסוק</label>
+                <input id="manual-occu" value={manualForm.occupation} onChange={e => setManualForm(f => ({ ...f, occupation: e.target.value }))} />
+              </div>
+              <div className="manual-edit-field">
+                <label htmlFor="manual-bdate">תאריך לידה</label>
+                <input id="manual-bdate" placeholder="לדוגמה: 15/05/1920 או 1920" value={manualForm.birthDate} onChange={e => setManualForm(f => ({ ...f, birthDate: e.target.value }))} />
+              </div>
+              <div className="manual-edit-field">
+                <label htmlFor="manual-bplace">מקום לידה</label>
+                <input id="manual-bplace" value={manualForm.birthPlace} onChange={e => setManualForm(f => ({ ...f, birthPlace: e.target.value }))} />
+              </div>
+              <div className="manual-edit-field">
+                <label htmlFor="manual-ddate">תאריך פטירה</label>
+                <input id="manual-ddate" placeholder="לדוגמה: 1985" value={manualForm.deathDate} onChange={e => setManualForm(f => ({ ...f, deathDate: e.target.value }))} />
+              </div>
+              <div className="manual-edit-field">
+                <label htmlFor="manual-dplace">מקום פטירה</label>
+                <input id="manual-dplace" value={manualForm.deathPlace} onChange={e => setManualForm(f => ({ ...f, deathPlace: e.target.value }))} />
+              </div>
+              <div className="manual-edit-field">
+                <label htmlFor="manual-resi">מקום מגורים</label>
+                <input id="manual-resi" value={manualForm.residencePlace} onChange={e => setManualForm(f => ({ ...f, residencePlace: e.target.value }))} />
+              </div>
+              <div className="manual-edit-field">
+                <label htmlFor="manual-title">תואר (הרב / ד״ר / ...)</label>
+                <input id="manual-title" value={manualForm.title} onChange={e => setManualForm(f => ({ ...f, title: e.target.value }))} />
+              </div>
+              <div className="manual-edit-field full-span">
+                <label htmlFor="manual-source">מקור המידע (אופציונלי)</label>
+                <input id="manual-source" placeholder="לדוגמה: ספר זיכרון משפחתי" value={manualForm.source} onChange={e => setManualForm(f => ({ ...f, source: e.target.value }))} />
+              </div>
+              <div className="manual-edit-field full-span">
+                <label htmlFor="manual-note">הוספת הערה חדשה (אופציונלי)</label>
+                <textarea id="manual-note" rows={3} placeholder="פרט נוסף או זיכרון להוספה לרשומה..." value={manualForm.note} onChange={e => setManualForm(f => ({ ...f, note: e.target.value }))} />
+              </div>
+            </div>
+            {error && (
+              <div className="error-message" role="alert" style={{ marginBottom: 12 }}>
+                <AlertTriangle size={16} />
+                <span>{error}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 12 }}>
+              <button type="button" className="button button-white" onClick={onClose} style={{ minHeight: 40 }}>ביטול</button>
+              <button type="submit" className="button button-primary" style={{ minHeight: 40 }}>
+                <Check size={17} />
+                <span>שמירת שינויים</span>
+              </button>
+            </div>
+          </form>
+        ) : (
+        <>
         {/* AI Provider Status Bar */}
         <div
           style={{
@@ -811,6 +994,8 @@ export function EditPersonAiModal({
             )}
           </div>
         </form>
+        </>
+        )}
       </div>
     </div>,
     document.body

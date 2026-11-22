@@ -40,7 +40,7 @@ jobs:
           fi
 
       - name: Run unit tests
-        run: node --test tests/security-hardening.test.js tests/scroll-lock.test.js tests/gedcom-ai-editor.test.js tests/gedcom.test.js tests/import.test.js tests/encoding.test.js tests/person-info.test.js tests/photo-storage.test.js tests/multi-file-storage.test.js tests/pwa.test.js tests/vault-crypto.test.js tests/cloud-service.test.js
+        run: node --test tests/security-hardening.test.js tests/scroll-lock.test.js tests/tree-insights.test.js tests/gedcom-ai-editor.test.js tests/gedcom.test.js tests/import.test.js tests/encoding.test.js tests/person-info.test.js tests/photo-storage.test.js tests/multi-file-storage.test.js tests/pwa.test.js tests/vault-crypto.test.js tests/cloud-service.test.js
 
       - name: Build production bundle
         run: npm run build

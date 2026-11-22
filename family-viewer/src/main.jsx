@@ -18,3 +18,14 @@ createRoot(document.getElementById('root')).render(
     </I18nProvider>
   </React.StrictMode>
 );
+
+if (
+  typeof window !== 'undefined' &&
+  'serviceWorker' in navigator &&
+  (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+) {
+  window.addEventListener('load', () => {
+    const base = import.meta.env?.BASE_URL || '/';
+    navigator.serviceWorker.register(`${base}sw.js`, { scope: base }).catch(() => {});
+  });
+}

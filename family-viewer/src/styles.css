@@ -380,3 +380,34 @@
 .sidebar,.dialog,.upload-dialog,.search-results{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .modal-backdrop,.sidebar-backdrop{overscroll-behavior:contain}
 @media(max-width:800px){.sidebar{height:100dvh;max-height:100dvh;padding-bottom:calc(26px + env(safe-area-inset-bottom))}}
+.insights-card .insights-list{display:flex;flex-direction:column;gap:6px;padding:0 14px 14px}
+.insight-row{display:flex;align-items:center;gap:10px;width:100%;padding:9px 11px;border:1px solid #e4eadc;border-radius:10px;background:#fcfdf9;text-align:right;transition:border-color .15s,background .15s}
+.insight-row:hover{border-color:#adc29e;background:#f3f7ed}
+.insight-row.is-today{border-color:#d4ab86;background:#fdf6ee}
+.insight-badge{flex-shrink:0;font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;background:#eaf1e2;color:#3d5c33}
+.insight-row.is-today .insight-badge{background:#f5e1ce;color:#8a4f2b}
+.insight-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.insight-main strong{font-size:12px;font-weight:600;color:#2f4531;overflow-wrap:anywhere}
+.insight-main small{font-size:10px;color:#68775e}
+.insight-arrow{flex-shrink:0;color:#87987a}
+.health-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:0 14px 14px}
+@media(max-width:600px){.health-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.health-stat{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 8px;border:1px solid #e4eadc;border-radius:10px;background:#f9fbf5;text-align:center}
+.health-stat strong{font-family:'Noto Serif Hebrew',Georgia,serif;font-size:21px;line-height:1.2;color:#456352}
+.health-stat span{font-size:10px;color:#68775e}
+.health-sublist{padding:0 14px 14px;display:flex;flex-direction:column;gap:6px}
+.health-sublist h4,.health-places h4{font-size:11px;font-weight:600;color:#516849;margin:0 0 4px}
+.health-places{padding:0 14px 14px}
+.health-place-chips{display:flex;flex-wrap:wrap;gap:6px}
+.health-place-chips>span{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border:1px solid #dfe7d6;border-radius:999px;background:#f7faf1;font-size:11px;color:#3e573b}
+.health-place-chips b{font-size:10px;color:#6a7c5e}
+.edit-mode-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px;border-radius:10px;background:#eef3e7;border:1px solid #dfe7d6;margin-bottom:14px}
+.edit-mode-tabs button{min-height:36px;padding:6px 10px;border-radius:7px;font-size:12px;font-weight:600;color:#586e4c;transition:background .15s,color .15s}
+.edit-mode-tabs button.selected{background:#fff;color:#2c472b;box-shadow:0 1px 4px rgba(40,60,35,.08)}
+.manual-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+@media(max-width:520px){.manual-edit-grid{grid-template-columns:1fr}}
+.manual-edit-field{display:flex;flex-direction:column;gap:4px}
+.manual-edit-field.full-span{grid-column:1/-1}
+.manual-edit-field label{font-size:11px;font-weight:600;color:#3d533d}
+.manual-edit-field input,.manual-edit-field select,.manual-edit-field textarea{width:100%;padding:8px 10px;border-radius:8px;border:1px solid #cbd7c4;background:#fff;color:#29392f;font-size:13px;line-height:1.45}
+.manual-edit-field input:focus,.manual-edit-field select:focus,.manual-edit-field textarea:focus{outline:2px solid #8aa67d;outline-offset:1px}

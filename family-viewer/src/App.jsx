@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Network, UsersRound, Upload, Search, ChevronDown, ChevronLeft, ChevronRight, ArrowUpLeft, FileText, ShieldCheck, X, Menu, MapPin, CalendarDays, BriefcaseBusiness, Heart, GitFork, HelpCircle, Printer, Download, Share2, Mail, Check, AlertTriangle, LoaderCircle, Home, Layers3, Leaf, Sprout, LockKeyhole, Info, RotateCcw, Baby, Flower2, CornerDownLeft, MousePointer2, ArrowRight, ArrowLeft, Clock3, Wrench, ImagePlus } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import FamilyView from './FamilyExperience.jsx';
@@ -13,6 +13,8 @@ import { useI18n } from './i18n/I18nContext.jsx';
 import LangToggle from './i18n/LangToggle.jsx';
 import { PersonPhotoContext, usePersonPhoto } from './PersonPhotoContext.jsx';
 import { addPersonPhotos, deleteBundlePhotos, deletePersonPhoto, getPersonPhotos, resolveGedcomPhotos, savePersonPhotos, validatePhotoFile } from './photo-storage.js';
+import { listSavedFiles, getActiveSavedFile, saveStoredFile, deleteStoredFile, setActiveStoredFileId, hasSavedFilesSync } from './file-storage.js';
+import { getMonthlyMilestones, analyzeTreeHealth } from './tree-insights.js';
 import { acquireBodyScrollLock, forceUnlockBodyScroll, syncBodyScrollLock, restoreFocusSafely } from './scroll-lock.js';
 
 const STORAGE_FILES_KEY = 'anafim-saved-files-v1';
@@ -441,20 +443,30 @@ function SearchBar({data, query, setQuery, onSelect, onDirectory }) {
 
 function PeopleView({ data, query, setQuery, onSelect }) {
   const { t } = useI18n();
+  const deferredQuery = useDeferredValue(query);
   const [filter,setFilter] = useState('all'), [sort,setSort] = useState('name'), [limit,setLimit] = useState(40);
-  useEffect(() => setLimit(40), [query, filter, sort, data]);
+  const loadMoreRef = useRef(null);
+  useEffect(() => setLimit(40), [deferredQuery, filter, sort, data]);
   const people = useMemo(() => {
-    const terms = normalize(query).split(' ').filter(Boolean);
+    const terms = normalize(deferredQuery).split(' ').filter(Boolean);
     return data.order.map(id => data.people[id]).filter(p => (filter === 'all' || p.sex === filter) && terms.every(t => p.search.includes(t))).sort((a,b) => sort === 'name' ? a.name.localeCompare(b.name,'he') : (getYear(a.birth?.date) || 9999) - (getYear(b.birth?.date) || 9999));
-  }, [data, query, filter, sort]);
-  return <section className="directory-view"><div className="workspace-heading"><div className="view-heading"><h2>{query ? 'תוצאות החיפוש' : 'הפנים של המשפחה'}</h2><span className="count-pill">{number(people.length)}</span></div><label className="sort-label">מיון לפי<select value={sort} onChange={e => setSort(e.target.value)} aria-label="מיון אנשים"><option value="name">שם פרטי</option><option value="birth">שנת לידה</option></select></label></div><div className="directory-filters"><div className="segmented-control"><button className={filter === 'all' ? 'selected' : ''} onClick={() => setFilter('all')}>{t('common.all')} <span>{number(data.stats.people)}</span></button><button className={filter === 'F' ? 'selected' : ''} onClick={() => setFilter('F')}>{t('common.women')} <span>{number(data.stats.women)}</span></button><button className={filter === 'M' ? 'selected' : ''} onClick={() => setFilter('M')}>{t('common.men')} <span>{number(data.stats.men)}</span></button></div>{query && <button className="text-button" onClick={() => setQuery('')}>{t('common.clearSearch')}<X size={14}/></button>}<span className="directory-hint">כל שם הוא התחלה של סיפור</span></div><div className="people-grid">{people.slice(0,limit).map(p => <button className="directory-person" key={p.id} onClick={() => onSelect(p.id)}><Avatar person={p} size="lg"/><span className="directory-person-info"><strong>{p.name}</strong><span>{lifeLabel(p)}</span><small><MapPin size={12}/>{p.birth?.place || 'מקום לידה לא צוין'}</small></span><ArrowUpLeft size={17}/></button>)}</div>{!people.length && <div className="empty-state"><Search size={35}/><h3>אין אנשים שמתאימים לחיפוש</h3><p>נסו שם אחר או חזרו להצגת כל המשפחה.</p><button className="button button-white" onClick={() => { setQuery(''); setFilter('all'); }}>{t('people.showAll')}</button></div>}{people.length > limit && <button className="button button-white load-more" onClick={() => setLimit(n => n + 60)}>הצגת אנשים נוספים<ChevronDown size={16}/></button>}</section>;
+  }, [data, deferredQuery, filter, sort]);
+  const hasMore = people.length > limit;
+  useEffect(() => {
+    if (!hasMore || typeof IntersectionObserver === 'undefined' || !loadMoreRef.current) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) setLimit(n => n + 60);
+    }, { rootMargin: '240px 0px' });
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, people.length]);
+  return <section className="directory-view"><div className="workspace-heading"><div className="view-heading"><h2>{query ? 'תוצאות החיפוש' : 'הפנים של המשפחה'}</h2><span className="count-pill">{number(people.length)}</span></div><label className="sort-label">מיון לפי<select value={sort} onChange={e => setSort(e.target.value)} aria-label="מיון אנשים"><option value="name">שם פרטי</option><option value="birth">שנת לידה</option></select></label></div><div className="directory-filters"><div className="segmented-control"><button className={filter === 'all' ? 'selected' : ''} onClick={() => setFilter('all')}>{t('common.all')} <span>{number(data.stats.people)}</span></button><button className={filter === 'F' ? 'selected' : ''} onClick={() => setFilter('F')}>{t('common.women')} <span>{number(data.stats.women)}</span></button><button className={filter === 'M' ? 'selected' : ''} onClick={() => setFilter('M')}>{t('common.men')} <span>{number(data.stats.men)}</span></button></div>{query && <button className="text-button" onClick={() => setQuery('')}>{t('common.clearSearch')}<X size={14}/></button>}<span className="directory-hint">כל שם הוא התחלה של סיפור</span></div><div className="people-grid">{people.slice(0,limit).map(p => <button className="directory-person" key={p.id} onClick={() => onSelect(p.id)}><Avatar person={p} size="lg"/><span className="directory-person-info"><strong>{p.name}</strong><span>{lifeLabel(p)}</span><small><MapPin size={12}/>{p.birth?.place || 'מקום לידה לא צוין'}</small></span><ArrowUpLeft size={17}/></button>)}</div>{!people.length && <div className="empty-state"><Search size={35}/><h3>אין אנשים שמתאימים לחיפוש</h3><p>נסו שם אחר או חזרו להצגת כל המשפחה.</p><button className="button button-white" onClick={() => { setQuery(''); setFilter('all'); }}>{t('people.showAll')}</button></div>}{hasMore && <button ref={loadMoreRef} className="button button-white load-more" onClick={() => setLimit(n => n + 60)}>הצגת אנשים נוספים<ChevronDown size={16}/></button>}</section>;
 }
 
-function SavedFilesList({ currentBundle, onLoadSavedFile, onRemoveSavedFile, onUploadNew, onSelectDemo }) {
-  const savedFiles = getSavedFilesList();
+function SavedFilesList({ savedFiles, currentBundle, onLoadSavedFile, onRemoveSavedFile, onUploadNew, onSelectDemo }) {
   return <div className="saved-files-card">
     <div className="saved-files-header">
-      <h3><FileText size={20}/>קובצי GEDCOM שמורים בדפדפן</h3>
+      <h3><FileText size={20}/>קובצי GEDCOM שמורים במכשיר</h3>
       <button className="button button-small button-primary" onClick={onUploadNew}><Upload size={14}/>טעינת קובץ חדש</button>
     </div>
     <div className="saved-files-list">
@@ -467,6 +479,7 @@ function SavedFilesList({ currentBundle, onLoadSavedFile, onRemoveSavedFile, onU
               <strong dir="auto">{file.filename}</strong>
               <span>
                 {file.importedAt ? `נשמר ב־${new Date(file.importedAt).toLocaleDateString('he-IL')}` : 'קובץ שמור'}
+                {file.peopleCount ? ` · ${number(file.peopleCount)} אנשים` : ''}
                 {isActive && <span className="active-badge">· פעיל כעת</span>}
               </span>
             </div>
@@ -493,10 +506,12 @@ function SavedFilesList({ currentBundle, onLoadSavedFile, onRemoveSavedFile, onU
   </div>;
 }
 
-function FileView({bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved, onToast }) {
+function FileView({bundle, savedFiles, onUpload, onDownload, onDemo, onForget, onLoadSaved, onSelectPerson, onToast }) {
   const { t } = useI18n();
   const { data } = bundle;
   const canShare = !!(bundle?.raw) && !bundle?.isDemo;
+  const milestones = useMemo(() => getMonthlyMilestones(data), [data]);
+  const health = useMemo(() => analyzeTreeHealth(data), [data]);
 
   const analysisTools = [
     {
@@ -700,7 +715,94 @@ function FileView({bundle, onUpload, onDownload, onDemo, onForget, onLoadSaved, 
         </dl>
       </details>
 
+      {!!milestones.length && (
+        <details className="file-tech-details insights-card" open>
+          <summary>החודש בהיסטוריה המשפחתית ({number(milestones.length)})</summary>
+          <div className="insights-list">
+            {milestones.slice(0, 12).map((item, idx) => (
+              <button
+                key={`${item.type}-${item.personId}-${idx}`}
+                type="button"
+                className={`insight-row ${item.isToday ? 'is-today' : ''}`}
+                onClick={() => onSelectPerson?.(item.personId)}
+              >
+                <span className="insight-badge">
+                  {item.type === 'birth' ? 'לידה' : item.type === 'marriage' ? 'נישואים' : 'יארצייט'}
+                </span>
+                <span className="insight-main">
+                  <strong dir="auto">{item.title}</strong>
+                  <small>
+                    {formatDate(item.dateRaw)}
+                    {item.yearsAgo != null ? ` · לפני ${number(item.yearsAgo)} שנים` : ''}
+                    {item.isToday ? ' · היום!' : ''}
+                  </small>
+                </span>
+                <ArrowUpLeft size={14} className="insight-arrow" />
+              </button>
+            ))}
+          </div>
+        </details>
+      )}
+
+      <details className="file-tech-details insights-card">
+        <summary>תובנות ובדיקת תקינות האילן</summary>
+        <div className="health-grid">
+          <div className="health-stat">
+            <strong>{number(health.missingBirthDateCount)}</strong>
+            <span>ללא תאריך לידה</span>
+          </div>
+          <div className="health-stat">
+            <strong>{number(health.missingParentsCount)}</strong>
+            <span>ללא הורים מקושרים</span>
+          </div>
+          <div className="health-stat">
+            <strong>{number(health.possibleDuplicates.length)}</strong>
+            <span>כפילויות אפשריות</span>
+          </div>
+          <div className="health-stat">
+            <strong>{number(health.impossibleDates.length)}</strong>
+            <span>חריגות תאריכים</span>
+          </div>
+        </div>
+        {!!health.impossibleDates.length && (
+          <div className="health-sublist">
+            <h4>חריגות תאריכים לבדיקה</h4>
+            {health.impossibleDates.slice(0, 8).map(({ person: p, reason }) => (
+              <button key={p.id} type="button" className="insight-row" onClick={() => onSelectPerson?.(p.id)}>
+                <span className="insight-main"><strong dir="auto">{p.name}</strong><small>{reason}</small></span>
+                <ArrowUpLeft size={14} className="insight-arrow" />
+              </button>
+            ))}
+          </div>
+        )}
+        {!!health.possibleDuplicates.length && (
+          <div className="health-sublist">
+            <h4>שמות כפולים אפשריים</h4>
+            {health.possibleDuplicates.slice(0, 8).map((group, idx) => (
+              <button key={idx} type="button" className="insight-row" onClick={() => onSelectPerson?.(group[0].id)}>
+                <span className="insight-main">
+                  <strong dir="auto">{group[0].name}</strong>
+                  <small>{number(group.length)} רשומות תואמות ({group.map(p => p.id.replaceAll('@', '')).join(', ')})</small>
+                </span>
+                <ArrowUpLeft size={14} className="insight-arrow" />
+              </button>
+            ))}
+          </div>
+        )}
+        {!!health.topPlaces.length && (
+          <div className="health-places">
+            <h4>מקומות לידה נפוצים</h4>
+            <div className="health-place-chips">
+              {health.topPlaces.map(({ place, count: c }) => (
+                <span key={place} dir="auto">{place} <b>{number(c)}</b></span>
+              ))}
+            </div>
+          </div>
+        )}
+      </details>
+
       <SavedFilesList
+        savedFiles={savedFiles}
         currentBundle={bundle}
         onLoadSavedFile={onLoadSaved}
         onRemoveSavedFile={onForget}
@@ -961,14 +1063,16 @@ function HelpDialog({ onClose, onUpload, onDownload, installPrompt, onInstall })
 export default function App() {
   const { t, lang } = useI18n();
   const viewNames = { family: t('nav.family'), people: t('nav.people'), file: t('nav.file') };
-  const [bundle,setBundle] = useState(initialBundle);
+  const [bundle,setBundle] = useState(demoBundle);
+  const [savedFiles,setSavedFiles] = useState([]);
   const [photoRevision,setPhotoRevision] = useState(0);
-  const [history,setHistory] = useState(() => ({ ids:[bundle.isDemo ? DEMO_ROOT : bundle.data.order[0]], cursor:0 }));
-  const [view,setView] = useState('family'), [query,setQuery] = useState(''), [modal,setModal] = useState(() => getSavedFilesList().length === 0 ? 'upload' : null), [mobileMenu,setMobileMenu] = useState(false), [parentFamily,setParentFamily] = useState(''), [toast,setToast] = useState(''), [installPrompt,setInstallPrompt] = useState(null);
+  const [history,setHistory] = useState(() => ({ ids:[DEMO_ROOT], cursor:0 }));
+  const [view,setView] = useState('family'), [query,setQuery] = useState(''), [modal,setModal] = useState(() => hasSavedFilesSync() ? null : 'upload'), [mobileMenu,setMobileMenu] = useState(false), [parentFamily,setParentFamily] = useState(''), [toast,setToast] = useState(''), [installPrompt,setInstallPrompt] = useState(null);
   const [undoStack, setUndoStack] = useState([]);
   const [aiSupported, setAiSupported] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const menuRef = useRef(null);
+  const hydratedSavedRef = useRef(false);
   const photoContext = useMemo(() => ({
     bundleId:bundle.id,
     remembered:bundle.remembered,
@@ -976,6 +1080,45 @@ export default function App() {
     revision:photoRevision,
     onPhotoError:error=>setToast(`לא ניתן לטעון תמונה מהאחסון המקומי. ${error.message}`),
   }), [bundle.id, bundle.remembered, bundle.photos, photoRevision]);
+
+  const refreshSavedFiles = useCallback(async () => {
+    const files = await listSavedFiles();
+    setSavedFiles(files);
+    return files;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const files = await listSavedFiles();
+      if (cancelled) return;
+      setSavedFiles(files);
+      if (hydratedSavedRef.current) return;
+      hydratedSavedRef.current = true;
+      const activeFile = await getActiveSavedFile();
+      if (cancelled || !activeFile?.raw) return;
+      try {
+        const parsedData = await parseGedcomAsync(activeFile.raw);
+        if (cancelled) return;
+        setBundle({
+          id: activeFile.id,
+          filename: activeFile.filename,
+          raw: activeFile.raw,
+          data: parsedData,
+          encoding: activeFile.encoding || 'utf-8',
+          encodingInfo: activeFile.encodingInfo,
+          importedAt: activeFile.importedAt,
+          isDemo: false,
+          remembered: true,
+        });
+        setHistory({ ids: [parsedData.order[0]], cursor: 0 });
+        setModal(null);
+      } catch (err) {
+        console.error('Failed to hydrate saved GEDCOM:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     // AI editing is supported across all browsers via Gemini API, window.ai, or local model
@@ -1033,7 +1176,7 @@ export default function App() {
       };
 
       if (!bundle.isDemo && bundle.remembered) {
-        saveFileToLocalStorage(nextBundle);
+        saveStoredFile(nextBundle).then(refreshSavedFiles).catch(() => {});
         pushToBaobabShared(nextBundle);
       }
 
@@ -1043,7 +1186,7 @@ export default function App() {
       console.error('Failed to apply GEDCOM update:', err);
       setToast('שגיאה בעדכון ה-GEDCOM: ' + err.message);
     }
-  }, [bundle]);
+  }, [bundle, refreshSavedFiles]);
 
   const handleUndoEdit = useCallback(() => {
     if (!undoStack.length) return;
@@ -1057,13 +1200,13 @@ export default function App() {
     };
 
     if (!bundle.isDemo && bundle.remembered) {
-      saveFileToLocalStorage(restoredBundle);
+      saveStoredFile(restoredBundle).then(refreshSavedFiles).catch(() => {});
       pushToBaobabShared(restoredBundle);
     }
 
     setBundle(restoredBundle);
     setToast('השינויים בוטלו בהצלחה.');
-  }, [bundle, undoStack]);
+  }, [bundle, undoStack, refreshSavedFiles]);
 
   const person = bundle.data.people[history.ids[history.cursor]] || bundle.data.people[bundle.data.order[0]];
   const demoSurname = bundle.isDemo ? 'משפחת לוין' : bundle.filename.replace(/\.(ged|gedcom|txt)$/i,'').replace(/[_-]/g,' ');
@@ -1098,17 +1241,19 @@ export default function App() {
   const goHistory = delta => { setHistory(h => ({ ...h, cursor:Math.min(Math.max(h.cursor + delta,0),h.ids.length - 1) })); setParentFamily(''); scrollToFamily(); };
   const resetSelection = () => { selectPerson(bundle.isDemo ? DEMO_ROOT : bundle.data.order[0]); setToast('חזרנו לאדם הראשון באילן'); };
   const loadBundle = async next => {
+    hydratedSavedRef.current = true;
     const result = { ...next }; delete result.type;
     let photosSavedError = '';
     let bundleSavedError = '';
     if (next.isDemo) {
-      setActiveFileIdInStorage(null);
+      setActiveStoredFileId(null);
       result.id = 'demo';
     } else if (next.remembered) {
-      const savedItem = saveFileToLocalStorage(next);
+      const savedItem = await saveStoredFile(next);
       if (savedItem) {
         result.id = savedItem.id;
         result.remembered = true;
+        await refreshSavedFiles();
         const photos = Object.entries(result.photos || {});
         if (photos.length) {
           try {
@@ -1125,7 +1270,7 @@ export default function App() {
         bundleSavedError = 'הקובץ נפתח, אך לא ניתן לשמור אותו בדפדפן (זיכרון מלא). הוא זמין למפגש הנוכחי.';
       }
     } else if (result.id) {
-      setActiveFileIdInStorage(result.id);
+      setActiveStoredFileId(result.id);
     }
     if (photosSavedError) result.photosSavedError = photosSavedError;
     setBundle(result); setHistory({ ids:[result.isDemo ? DEMO_ROOT : result.data.order[0]], cursor:0 }); setQuery(''); setParentFamily(''); setView('family'); setModal(null); setMobileMenu(false); forceUnlockBodyScroll(); requestAnimationFrame(() => { forceUnlockBodyScroll(); window.scrollTo(0, 0); });
@@ -1141,9 +1286,9 @@ export default function App() {
     if (!(next.remembered && !result.remembered) && !result.isDemo) pushToBaobabShared(result);
   };
 
-  const loadSavedFile = (fileItem) => {
-    const parsedData = parseGedcom(fileItem.raw);
-    loadBundle({
+  const loadSavedFile = async (fileItem) => {
+    const parsedData = await parseGedcomAsync(fileItem.raw);
+    await loadBundle({
       id: fileItem.id,
       filename: fileItem.filename,
       raw: fileItem.raw,
@@ -1227,15 +1372,16 @@ export default function App() {
       const targetId = fileIdToForget || bundle.id;
       if (targetId && targetId !== 'demo') {
         await deleteBundlePhotos(targetId);
-        const remaining = removeFileFromLocalStorage(targetId);
+        const remaining = await deleteStoredFile(targetId);
+        setSavedFiles(remaining);
         if (bundle.id === targetId) {
           if (remaining.length > 0) {
             const nextFile = remaining[0];
-            loadBundle({
+            await loadBundle({
               id: nextFile.id,
               filename: nextFile.filename,
               raw: nextFile.raw,
-              data: parseGedcom(nextFile.raw),
+              data: await parseGedcomAsync(nextFile.raw),
               encoding: nextFile.encoding || 'utf-8',
               encodingInfo: nextFile.encodingInfo,
               importedAt: nextFile.importedAt,
@@ -1243,7 +1389,7 @@ export default function App() {
               remembered: true
             });
           } else {
-            loadBundle(demoBundle());
+            await loadBundle(demoBundle());
           }
         }
         setToast('הקובץ השמור נמחק מהמכשיר.');
@@ -1265,7 +1411,7 @@ export default function App() {
   const clearCloudView = () => {
     try {
       if (bundle.id && bundle.id !== 'demo') {
-        removeFileFromLocalStorage(bundle.id);
+        deleteStoredFile(bundle.id).then(setSavedFiles).catch(() => {});
         deleteBundlePhotos(bundle.id).catch(() => {});
       }
       if (loadSharedExport()?.source === 'anafim') {
@@ -1383,7 +1529,7 @@ export default function App() {
           ) : view === 'people' ? (
             <PeopleView data={bundle.data} query={query} setQuery={setQuery} onSelect={selectPerson}/>
           ) : (
-            <FileView bundle={bundle} onUpload={() => setModal('upload')} onDownload={downloadGedcom} onDemo={() => loadBundle(demoBundle())} onForget={forget} onLoadSaved={loadSavedFile} onToast={setToast}/>
+            <FileView bundle={bundle} savedFiles={savedFiles} onUpload={() => setModal('upload')} onDownload={downloadGedcom} onDemo={() => loadBundle(demoBundle())} onForget={forget} onLoadSaved={loadSavedFile} onSelectPerson={selectPerson} onToast={setToast}/>
           )}
           <footer className="workspace-footer">
             <span><Sprout size={15}/>לכל משפחה יש דרך. לכל אדם יש מקום.</span>
