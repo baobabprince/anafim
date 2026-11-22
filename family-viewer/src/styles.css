@@ -222,25 +222,46 @@
 .warnings-card,.warnings-card h3,.warnings-card p,.warnings-card li{color:#71592f}
 .nav-item:not(.active){color:#526747}
 
-.sidebar-cloud{padding:6px 12px 14px;border-top:none}
-.sidebar-cloud-secondary{opacity:.78;margin-top:4px}
-.sidebar-cloud-secondary:hover,.sidebar-cloud-secondary:focus-within{opacity:1}
+.sidebar-cloud{padding:6px 10px 14px;border-top:none}
+.sidebar-cloud-secondary{margin-top:6px}
 .sidebar-cloud .cloud-strip{
   flex-direction:row;align-items:center;gap:8px;
-  padding:6px 8px;margin:0;border-radius:8px;
-  background:transparent;border:none;
+  padding:8px 9px;margin:0;border-radius:10px;
+  background:#f4f7ef;border:1px solid #e2ead9;
 }
-.sidebar-cloud .cloud-strip-symbol{display:none}
+.sidebar-cloud .cloud-strip-symbol{display:grid;width:26px;height:26px;border-radius:7px}
 .sidebar-cloud .cloud-strip>div{min-width:0;flex:1}
-.sidebar-cloud .cloud-strip strong{font-size:12px;font-weight:600;color:var(--muted, #6b6560)}
-.sidebar-cloud .cloud-strip small{font-size:11px;color:var(--muted, #8a847c)}
+.sidebar-cloud .cloud-strip strong{font-size:11px;font-weight:600;color:#395238}
+.sidebar-cloud .cloud-strip small{font-size:10px;color:#65765c}
 .sidebar-cloud .cloud-entry{
-  width:auto;justify-content:flex-start;
-  font-size:12px;padding:4px 8px;border-radius:6px;
-  background:transparent;border:1px solid transparent;color:var(--muted, #6b6560);
+  width:auto;justify-content:center;
+  font-size:11px;padding:4px 8px;border-radius:6px;min-height:28px;
+  background:#fff;border:1px solid #d4dfca;color:#395537;
 }
-.sidebar-cloud .cloud-entry:hover{border-color:var(--line,#e2ddd2);background:#f7f5f0;color:inherit}
+.sidebar-cloud .cloud-entry:hover{border-color:#9eb78c;background:#ebf2e3;color:#284226}
 .page-content>.cloud-strip{display:none!important}
+.file-cloud-card{
+  display:flex;align-items:center;gap:12px;width:100%;text-align:right;
+  margin-top:16px;padding:15px 16px;border-radius:13px;
+  border:1px solid #dce6d2;background:#f6f9f1;color:#2e4830;
+  transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;
+}
+.file-cloud-card:hover{border-color:#b2c7a2;background:#eef4e6;box-shadow:0 4px 14px rgba(69,99,82,.08)}
+.file-cloud-card.is-alert{border-color:#e4c6b4;background:#fff6ef}
+.file-cloud-icon{
+  flex-shrink:0;width:40px;height:40px;border-radius:11px;
+  display:grid;place-items:center;background:#e4eedb;color:#45653d;
+}
+.file-cloud-card.is-unlocked .file-cloud-icon{background:#d7e8ca;color:#2f552b}
+.file-cloud-card.is-alert .file-cloud-icon{background:#fae4d5;color:#935334}
+.file-cloud-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.file-cloud-copy strong{font-size:13px;font-weight:600;color:#2d472e}
+.file-cloud-copy span{font-size:11px;color:#5e7155;line-height:1.4;overflow-wrap:anywhere}
+.file-cloud-action{
+  flex-shrink:0;display:inline-flex;align-items:center;gap:4px;
+  padding:6px 11px;border-radius:8px;background:#fff;border:1px solid #cfdbc4;
+  font-size:12px;font-weight:500;color:#355233;white-space:nowrap;
+}
 
 /* File view redesign — analysis tools + compact layout */
 .file-tools-section{margin:18px 0 8px}

@@ -80,7 +80,12 @@ test('production CSP, referrer policy, and template interpolation guards stay in
 
   const cloudAccess = fs.readFileSync(path.join(rootDir, 'src', 'CloudAccess.jsx'), 'utf8');
   assert.ok(!cloudAccess.includes("ענפים — {t('cloud.recovery')}"), 'CloudAccess should interpolate ${t(...)}');
+  assert.ok(cloudAccess.includes('anafim-cloud-autosync-v1'), 'CloudAccess should persist auto-sync preference');
+  assert.ok(cloudAccess.includes('PasswordField'), 'CloudAccess should provide password show/hide toggle');
+  assert.ok(cloudAccess.includes('handleCopyRecovery'), 'CloudAccess should provide one-click recovery key copy');
+  assert.ok(!cloudAccess.includes('recoveryTail'), 'CloudAccess should not require typing the last 8 recovery characters');
 
   const appJsx = fs.readFileSync(path.join(rootDir, 'src', 'App.jsx'), 'utf8');
   assert.ok(!appJsx.includes('aria-label="{t('), 'App.jsx should not have quoted {t(...)} aria-labels');
+  assert.ok(appJsx.includes('file-cloud-card'), 'FileView should expose quick Cloud Sync entry card');
 });

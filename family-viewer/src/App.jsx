@@ -1,5 +1,5 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Network, UsersRound, Upload, Search, ChevronDown, ChevronLeft, ChevronRight, ArrowUpLeft, FileText, ShieldCheck, X, Menu, MapPin, CalendarDays, BriefcaseBusiness, Heart, GitFork, HelpCircle, Printer, Download, Share2, Mail, Check, AlertTriangle, LoaderCircle, Home, Layers3, Leaf, Sprout, LockKeyhole, Info, RotateCcw, Baby, Flower2, CornerDownLeft, MousePointer2, ArrowRight, ArrowLeft, Clock3, Wrench, ImagePlus } from 'lucide-react';
+import { Network, UsersRound, Upload, Search, ChevronDown, ChevronLeft, ChevronRight, ArrowUpLeft, FileText, ShieldCheck, X, Menu, MapPin, CalendarDays, BriefcaseBusiness, Heart, GitFork, HelpCircle, Printer, Download, Share2, Mail, Check, AlertTriangle, LoaderCircle, Home, Layers3, Leaf, Sprout, LockKeyhole, Info, RotateCcw, Baby, Flower2, CornerDownLeft, MousePointer2, ArrowRight, ArrowLeft, Clock3, Wrench, ImagePlus, Cloud } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import FamilyView from './FamilyExperience.jsx';
 import CloudAccess from './CloudAccess.jsx';
@@ -506,7 +506,7 @@ function SavedFilesList({ savedFiles, currentBundle, onLoadSavedFile, onRemoveSa
   </div>;
 }
 
-function FileView({bundle, savedFiles, onUpload, onDownload, onDemo, onForget, onLoadSaved, onSelectPerson, onToast }) {
+function FileView({bundle, savedFiles, onUpload, onDownload, onDemo, onForget, onLoadSaved, onSelectPerson, onToast, cloudStatus, onOpenCloud }) {
   const { t } = useI18n();
   const { data } = bundle;
   const canShare = !!(bundle?.raw) && !bundle?.isDemo;
@@ -667,6 +667,26 @@ function FileView({bundle, savedFiles, onUpload, onDownload, onDemo, onForget, o
           </p>
         )}
       </div>
+
+      {onOpenCloud && (
+        <button
+          type="button"
+          className={`file-cloud-card ${cloudStatus?.unlocked ? 'is-unlocked' : ''} ${cloudStatus?.needsAction ? 'is-alert' : ''}`}
+          onClick={onOpenCloud}
+        >
+          <span className="file-cloud-icon">
+            {cloudStatus?.needsAction ? <AlertTriangle size={20} /> : cloudStatus?.unlocked ? <ShieldCheck size={20} /> : <Cloud size={20} />}
+          </span>
+          <span className="file-cloud-copy">
+            <strong>{cloudStatus?.unlocked || cloudStatus?.needsAction ? cloudStatus.label : 'סנכרון בין מכשירים'}</strong>
+            <span>{cloudStatus?.detail || 'גיבוי מוצפן בין הטלפון למחשב'}</span>
+          </span>
+          <span className="file-cloud-action">
+            {cloudStatus?.connected ? (cloudStatus.unlocked ? 'ניהול' : 'פתיחה') : 'התחברות'}
+            <ChevronLeft size={14} />
+          </span>
+        </button>
+      )}
 
       <div className="file-tools-section">
         <div className="file-tools-heading">
@@ -1071,6 +1091,16 @@ export default function App() {
   const [undoStack, setUndoStack] = useState([]);
   const [aiSupported, setAiSupported] = useState(false);
   const [devMode, setDevMode] = useState(false);
+  const [cloudOpenSignal, setCloudOpenSignal] = useState(0);
+  const [cloudStatus, setCloudStatus] = useState({
+    label: 'סנכרון בין מכשירים',
+    detail: 'גיבוי מוצפן בין הטלפון למחשב',
+    unlocked: false,
+    connected: false,
+    phase: 'signed-out',
+    configured: true,
+    needsAction: false,
+  });
   const menuRef = useRef(null);
   const hydratedSavedRef = useRef(false);
   const photoContext = useMemo(() => ({
@@ -1467,7 +1497,19 @@ export default function App() {
         </div>
         <div className="sidebar-privacy"><ShieldCheck size={14}/><span>{t('nav.privacyLine')}</span></div>
         <div className="sidebar-cloud sidebar-cloud-secondary">
-          <CloudAccess Dialog={Dialog} bundle={bundle} selectedId={person.id} onApplySnapshot={applyCloudSnapshot} onClear={clearCloudView} onUpload={()=>{ setMobileMenu(false); setModal('upload'); }} isModalOpen={!!modal}/>
+          <CloudAccess
+            Dialog={Dialog}
+            bundle={bundle}
+            selectedId={person.id}
+            onApplySnapshot={applyCloudSnapshot}
+            onClear={clearCloudView}
+            onUpload={() => { setMobileMenu(false); setModal('upload'); }}
+            isModalOpen={!!modal}
+            openSignal={cloudOpenSignal}
+            onDialogOpen={() => setMobileMenu(false)}
+            onToast={setToast}
+            onStatusChange={setCloudStatus}
+          />
         </div>
       </aside>
       <main className="main-content" id="main-content">
@@ -1529,7 +1571,7 @@ export default function App() {
           ) : view === 'people' ? (
             <PeopleView data={bundle.data} query={query} setQuery={setQuery} onSelect={selectPerson}/>
           ) : (
-            <FileView bundle={bundle} savedFiles={savedFiles} onUpload={() => setModal('upload')} onDownload={downloadGedcom} onDemo={() => loadBundle(demoBundle())} onForget={forget} onLoadSaved={loadSavedFile} onSelectPerson={selectPerson} onToast={setToast}/>
+            <FileView bundle={bundle} savedFiles={savedFiles} onUpload={() => setModal('upload')} onDownload={downloadGedcom} onDemo={() => loadBundle(demoBundle())} onForget={forget} onLoadSaved={loadSavedFile} onSelectPerson={selectPerson} onToast={setToast} cloudStatus={cloudStatus} onOpenCloud={() => setCloudOpenSignal(n => n + 1)}/>
           )}
           <footer className="workspace-footer">
             <span><Sprout size={15}/>לכל משפחה יש דרך. לכל אדם יש מקום.</span>

@@ -155,7 +155,7 @@ export default {
   'cloud.identityChanged': 'זהות או סדר גרסאות הכספת השתנו. נדרשת פתיחה מחדש.',
   'cloud.httpsOnly': 'התחברות לענן פועלת באתר HTTPS, לא בקובץ HTML מקומי.',
   'cloud.optionalHint': 'אופציונלי. שומר עותק מוצפן בענן — רק אתם יכולים לפתוח.',
-  'cloud.saveRecovery': 'שמרו את מפתח השחזור ואשרו את שמונת התווים האחרונים שלו.',
+  'cloud.saveRecovery': 'אשרו ששמרתם את מפתח השחזור במקום בטוח לפני ההמשך.',
   'cloud.workingSecure': 'מבצעים את הפעולה באופן מאובטח…',
   'cloud.lockPartialLogout': 'המפתח ננעל. ניתוק ההתחברות לא הושלם; נסו שוב כשיש חיבור.',
   'cloud.cancelled': 'הפעולה בוטלה.',

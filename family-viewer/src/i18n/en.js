@@ -155,7 +155,7 @@ export default {
   'cloud.identityChanged': 'Vault identity or version order changed. Unlock again.',
   'cloud.httpsOnly': 'Cloud sign-in works on HTTPS sites, not local HTML files.',
   'cloud.optionalHint': 'Optional. Saves an encrypted copy in the cloud — only you can open it.',
-  'cloud.saveRecovery': 'Save the recovery key and confirm its last eight characters.',
+  'cloud.saveRecovery': 'Confirm that you saved the recovery key in a safe place before continuing.',
   'cloud.workingSecure': 'Working securely…',
   'cloud.lockPartialLogout': 'Key locked. Sign-out did not finish; try again when online.',
   'cloud.cancelled': 'Action cancelled.',
