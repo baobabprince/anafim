@@ -26,12 +26,12 @@
 
 ## כספת ענן (בקצרה)
 
-ההגדרה בפרודקשן כבר קיימת. למשתמש הקצה: התחברות Google → יצירת/פתיחת כספת → סנכרון.
+כאשר הענן הוגדר למופע האתר: התחברות Google → יצירת כספת עם סיסמה ושמירת מפתח שחזור → סנכרון. אפשר להוסיף Passkey נתמך לאחר פתיחת הכספת.
 
 הכספת ננעלת אחרי **יומיים** ללא פעילות באותו מכשיר (המפתח לא נשמר בדפדפן).
 
 מי שצריך להקים פרויקט מחדש או לחפור:  
-`supabase/migrations/202610180001_private_vault.sql` וקוד תחת `family-viewer/src/cloud-*.js`, `vault-*.js`.
+`family-viewer/supabase/migrations/202610180001_private_vault.sql`, [מדריך ההקמה](family-viewer/README.md) וקוד תחת `family-viewer/src/cloud-*.js`, `vault-*.js`.
 
 ## פיתוח
 

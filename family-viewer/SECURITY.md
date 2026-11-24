@@ -2,7 +2,7 @@
 
 ## Status and intended guarantee
 
-This release implements client-side envelope encryption and private cloud access controls. It has automated tests, **not an independent cryptographic/security audit**. No live operator-owned Supabase project, Google OAuth client, production origin or physical passkey provider was available for integration testing.
+This release implements client-side envelope encryption and private cloud access controls. It has automated tests, **not an independent cryptographic/security audit**. Automated local tests alone do not verify any operator-owned Supabase project, Google OAuth client, production origin or physical passkey provider; each deployment requires its own integration tests.
 
 The intended confidentiality guarantee is that reading the application database, Storage bucket, service-role API or backups does not reveal family content without a user's client-side unlocking secret. It is **not** a guarantee that a malicious operator who modifies the delivered JavaScript cannot steal future plaintext or keys. A web application must also trust its delivery/build chain and the code running on its origin. Stronger protection against a hostile client distributor requires independently controlled/reviewed client delivery, not a different database policy.
 
@@ -10,7 +10,8 @@ The intended confidentiality guarantee is that reading the application database,
 
 - Google `sub`, Supabase user UUID, email and record identifiers are public identity/context, never encryption passwords.
 - A 256-bit random AES-GCM data-encryption key (DEK) is generated in the browser through Web Crypto.
-- A credential-scoped WebAuthn PRF result is input to HKDF-SHA-256 with a fresh salt and purpose-bound context. The resulting AES-GCM key-encryption key wraps the DEK.
+- The current UI creates a password-based wrap using PBKDF2-SHA-256 with a random salt and 310,000 iterations, followed by HKDF-SHA-256 and AES-GCM key wrapping. A vault password must be at least eight characters; users should choose a strong unique password.
+- An optional credential-scoped WebAuthn PRF result is input to HKDF-SHA-256 with a fresh salt and purpose-bound context. The resulting AES-GCM key-encryption key wraps the DEK. The current UI can add a Passkey after the vault has been unlocked.
 - A second DEK wrap uses an independently random 256-bit recovery secret and HKDF. The user receives a checksummed recovery code. Neither the recovery code, PRF output nor raw DEK is uploaded.
 - The DEK is an extractable CryptoKey while unlocked because new independent wraps must be supported. It remains in browser memory only; it is not serialized into localStorage, IndexedDB or Supabase. Lock removes application references. JavaScript/OS memory erasure cannot be guaranteed.
 - The PRF output/recovery temporary byte arrays are overwritten after wrapping/unwrapping where practical. This does not eliminate all possible engine copies.
@@ -22,7 +23,7 @@ The intended confidentiality guarantee is that reading the application database,
 
 Supabase/Google and the operator can see authentication identity/profile metadata (such as account email), user/vault/revision UUIDs, generation counters, update times, encrypted sizes, PRF/HKDF salts, credential IDs/RP domains, IVs and encrypted key wraps. Traffic timing and compressed lengths are not hidden. The operator does not obtain a secret decryption key from these fields.
 
-Do not represent this as anonymous storage, or as hiding the user's Google identity from the operator. No family names, filenames or search index are intentionally sent outside encrypted snapshots. No analytics, external portraits or remote family-data services are included.
+Do not represent this as anonymous storage, or as hiding the user's Google identity from the operator. No family names, filenames or search index are intentionally sent outside encrypted snapshots. Optional AI features can use external providers or download models when explicitly selected; users should review the provider and data handling before sending sensitive information.
 
 ## Authentication and access control
 
@@ -49,7 +50,7 @@ Do not represent this as anonymous storage, or as hiding the user's Google ident
 - Without cloud configuration no cloud client is initialized and no genealogy data is uploaded. The demo is never uploaded as a family snapshot.
 - The old optional local GEDCOM cache remains a **plaintext** localStorage copy and is now explicitly labeled. It is off by default; vault lock/logout clears that cache and closes the currently open family.
 - Browser extensions, compromised devices, XSS, same-origin third-party scripts, malicious app updates, memory dumps and screen/clipboard capture are outside the passive-server confidentiality guarantee.
-- WebAuthn PRF availability is checked on a real ceremony, not inferred from basic WebAuthn availability. An unsupported authenticator fails without uploading data or deriving keys from Google IDs.
+- WebAuthn PRF availability is checked on a real ceremony, not inferred from basic WebAuthn availability. An unsupported authenticator cannot add or use a PRF-backed Passkey; the user can still unlock a vault with its password or recovery secret. Google IDs are never used as decryption keys.
 - Static production CSP/permission headers are supplied for compatible hosts. Configure equivalents on your real host; dev preview is not an audited production deployment. A standalone file and a sandboxed viewer do not provide production OAuth/WebAuthn hosting.
 - Deletion is a multi-service operation. Partial failures and provider backups require operational follow-up. Deleting a cloud vault does not delete account identity or copies already downloaded by another party.
 - A fresh device cannot independently prove that an operator has not replayed an older otherwise valid encrypted snapshot. This release is not a signed transparency log/anti-rollback system.
@@ -58,7 +59,7 @@ Do not represent this as anonymous storage, or as hiding the user's Google ident
 
 - Web Crypto round trips, wrong recovery/PRF secrets, owner/revision substitution, corrupted ciphertext, fresh nonces and multiple wrappers.
 - PostgreSQL (PGlite) executes the migration, RLS, restricted grants, intentionally overbroad legacy Storage policy, private ownership, immutable objects, anonymous denial, history and CAS conflicts.
-- Chromium virtual authenticator performs actual PRF create/get. UI tests verify recovery acknowledgment, lock/clear, a second device recovering, ciphertext-only network payloads, offline retry, automatic synchronization and dirty-local conflicts.
-- OAuth tests verify the SDK's Google/PKCE redirect contract against a local simulated service. These tests do **not** prove that a real Google OAuth configuration or a hardware/OS password manager will work.
+- Browser test files cover a simulated cloud service and virtual WebAuthn, but some still target an older Passkey-first UI. Review and update them for the current password-first flow before relying on their results. `npm test` does not run these browser tests.
+- Simulated OAuth tests do **not** prove that a real Google OAuth configuration or a hardware/OS password manager will work.
 
 Before production: independently review the cryptography/protocol, run real Google and Supabase integration tests, test the target physical devices and recovery UX, audit deployment origins/CSP, set quotas/retention/rate limits and document identity/account deletion obligations.
