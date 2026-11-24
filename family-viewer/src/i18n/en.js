@@ -11,6 +11,7 @@ export default {
   'chart.five': '5 generations',
   'chart.six': '6 generations',
   'chart.branches': 'Show side branches: siblings of the selected person and their ancestors, with partners and children',
+  'chart.complexLayout': 'Complex family connections require a general layout, where some lines may cross.',
   'chart.compactDescendants': 'Circular layout for the last descendant generation',
   'chart.compactDescendantsHint': 'Groups of three or more children from one family may appear in a circle. People with additional links or non-birth relationships stay separate. Compare both layouts: a circle is not always smaller.',
   'chart.compactBranches': 'Compact circular layout for side-branch descendants',

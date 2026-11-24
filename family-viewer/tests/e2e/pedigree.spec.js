@@ -57,6 +57,7 @@ test('preview, switch generations, download and print the selected family chart'
   await expect(compactDescendants).not.toBeChecked();
   await expect(dialog.locator('.chart-preview .branch-ring')).toHaveCount(0);
   await compactDescendants.check();
+  await expect(dialog.locator('.chart-preview svg')).toHaveAttribute('data-layout', 'family-tree');
   await expect(dialog.locator('.chart-preview .branch-ring')).toHaveCount(1);
   await expect(dialog.locator('.chart-preview .person[data-compact="true"]')).toHaveCount(3);
   await compactDescendants.uncheck();

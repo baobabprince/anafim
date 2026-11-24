@@ -665,3 +665,122 @@ test('explicit divorce and widowhood are not conflated or inferred from divorce 
   assert.equal((svg.match(/class="line union-ended"/g) || []).length, 2);
   assert.ok(new Resvg(svg).render().width > 0);
 });
+
+// Geometry checks use synthetic families only; no uploaded family data is saved.
+function chartGeometry(svg) {
+  const people = new Map();
+  for (const m of svg.matchAll(/<g class="person" data-person-id="([^"]+)"[^>]*><rect[^>]* x="([-\d.]+)" y="([-\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)) {
+    people.set(m[1], {x:Number(m[2]), y:Number(m[3]), width:Number(m[4]), height:Number(m[5])});
+  }
+  const rings = new Map();
+  for (const m of svg.matchAll(/<g class="branch-ring" data-family-id="([^"]+)"><ellipse[^>]* cx="([-\d.]+)" cy="([-\d.]+)" rx="([\d.]+)" ry="([\d.]+)"/g)) {
+    rings.set(m[1], {x:Number(m[2]), y:Number(m[3]), rx:Number(m[4]), ry:Number(m[5])});
+  }
+  const lines = [];
+  for (const m of svg.matchAll(/<g data-family-id="([^"]+)"(?: data-person-id="([^"]+)")? data-relation="(partner|child|cluster)"><(polyline|line)\b([^>]*)/g)) {
+    const [family, person, type, tag, attrs] = m.slice(1);
+    let points;
+    if (tag === 'polyline') points = attrs.match(/points="([^"]+)"/)[1].split(' ').map(p => p.split(',').map(Number));
+    else {
+      const attr = name => Number(attrs.match(new RegExp(`${name}="([-\\d.]+)"`))[1]);
+      points = [[attr('x1'),attr('y1')],[attr('x2'),attr('y2')]];
+    }
+    for (let i=1; i<points.length; i++) if (Math.hypot(points[i][0]-points[i-1][0],points[i][1]-points[i-1][1]) > 0.01) lines.push({family,person,type,a:points[i-1],b:points[i]});
+  }
+  return {people, rings, lines};
+}
+
+function strictIntersection(a,b,c,d) {
+  const cross = (p,q,r) => (q[0]-p[0])*(r[1]-p[1]) - (q[1]-p[1])*(r[0]-p[0]);
+  return cross(a,b,c)*cross(a,b,d) < -1e-6 && cross(c,d,a)*cross(c,d,b) < -1e-6;
+}
+
+function segmentsTouch(a,b,c,d) {
+  const cross = (p,q,r) => (q[0]-p[0])*(r[1]-p[1]) - (q[1]-p[1])*(r[0]-p[0]);
+  const onSegment = (p,q,r) => Math.abs(cross(p,q,r)) < 1e-6 &&
+    r[0] >= Math.min(p[0],q[0])-1e-6 && r[0] <= Math.max(p[0],q[0])+1e-6 &&
+    r[1] >= Math.min(p[1],q[1])-1e-6 && r[1] <= Math.max(p[1],q[1])+1e-6;
+  return strictIntersection(a,b,c,d) || onSegment(a,b,c) || onSegment(a,b,d) || onSegment(c,d,a) || onSegment(c,d,b);
+}
+
+test('descendant family blocks keep circles with their married siblings without crossing unrelated lines', () => {
+  const people = ['R','S','A','AP','B','BP','A1','A1P','A1P2','A2','A2P','A3','A4','A5','B1','B1P','B2','B3','B4']
+    .map(id => `0 @${id}@ INDI\n1 NAME Person${id}`).join('\n');
+  const data = parseGedcom(wrap(`${people}
+0 @FR@ FAM
+1 HUSB @R@
+1 WIFE @S@
+1 CHIL @A@
+1 CHIL @B@
+0 @FA@ FAM
+1 HUSB @A@
+1 WIFE @AP@
+1 CHIL @A1@
+1 CHIL @A2@
+1 CHIL @A3@
+1 CHIL @A4@
+1 CHIL @A5@
+0 @FB@ FAM
+1 HUSB @B@
+1 WIFE @BP@
+1 CHIL @B1@
+1 CHIL @B2@
+1 CHIL @B3@
+1 CHIL @B4@
+0 @A1F@ FAM
+1 HUSB @A1@
+1 WIFE @A1P@
+0 @A1F2@ FAM
+1 HUSB @A1@
+1 WIFE @A1P2@
+0 @A2F@ FAM
+1 HUSB @A2@
+1 WIFE @A2P@
+0 @B1F@ FAM
+1 HUSB @B1@
+1 WIFE @B1P@`));
+  const options = {...opts, mode:'descendants', generations:3, compactDescendants:true};
+  const svg = createPedigreeSvg(data, '@R@', options);
+  assert.match(svg, /data-layout="family-tree"/);
+  const {people: positions, rings, lines} = chartGeometry(svg);
+  assert.equal(rings.size, 2);
+  assert.ok(rings.has('@FA@') && rings.has('@FB@'));
+  for (const [fid, siblings, otherSiblings] of [
+    ['@FA@',['@A1@','@A2@'],['@B1@']], ['@FB@',['@B1@'],['@A1@','@A2@']],
+  ]) {
+    const ring = rings.get(fid);
+    const center = id => {const p=positions.get(id); return p.x+p.width/2;};
+    const near = Math.min(...siblings.map(id => Math.abs(ring.x-center(id))));
+    const far = Math.min(...otherSiblings.map(id => Math.abs(ring.x-center(id))));
+    assert.ok(near < far, `${fid}: circle must be closer to its own siblings`);
+  }
+  for (let i=0; i<lines.length; i++) for (let j=0; j<i; j++) {
+    const a = lines[i], b = lines[j];
+    const sharedPartner = a.type === 'partner' && b.type === 'partner' && a.person === b.person;
+    if (a.family !== b.family && !sharedPartner) assert.ok(!segmentsTouch(a.a,a.b,b.a,b.b), 'unrelated family lines must not cross, overlap or touch');
+  }
+  for (const line of lines) for (const [id, box] of positions) {
+    if (id === line.person) continue;
+    const x1=box.x,y1=box.y,x2=x1+box.width,y2=y1+box.height;
+    const corners = [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];
+    assert.ok(!corners.some((point,index) => strictIntersection(line.a,line.b,point,corners[(index+1)%4])), 'a line must not pass through another person');
+  }
+  const boxes = [...positions.values()];
+  for (let i=0; i<boxes.length; i++) for (let j=0; j<i; j++) {
+    const a=boxes[i],b=boxes[j];
+    assert.ok(a.x+a.width<=b.x || b.x+b.width<=a.x || a.y+a.height<=b.y || b.y+b.height<=a.y, 'people must not overlap');
+  }
+  const model = buildPedigreeGraph(data, '@R@', options);
+  for (const id of model.people.keys()) assert.equal((svg.match(new RegExp(`class="person" data-person-id="${id}"`, 'g')) || []).length, 1, id);
+  assert.ok(new Resvg(svg).render().width > 0);
+});
+
+test('cross-linked descendants fall back without dropping relationships or duplicating people', () => {
+  const data = parseGedcom(wrap(`0 @R@ INDI\n1 NAME Root\n0 @A@ INDI\n1 NAME ChildA\n0 @B@ INDI\n1 NAME ChildB\n0 @C@ INDI\n1 NAME SharedChild\n0 @F0@ FAM\n1 HUSB @R@\n1 CHIL @A@\n1 CHIL @B@\n0 @F1@ FAM\n1 HUSB @A@\n1 CHIL @C@\n0 @F2@ FAM\n1 HUSB @B@\n1 CHIL @C@`));
+  const svg = createPedigreeSvg(data, '@R@', {...opts, mode:'descendants', generations:3, compactDescendants:true});
+  assert.match(svg, /data-layout="graph"/);
+  assert.equal((svg.match(/class="person" data-person-id="@C@"/g)||[]).length, 1);
+  assert.match(svg, /data-family-id="@F1@" data-person-id="@C@" data-relation="child"/);
+  assert.match(svg, /data-family-id="@F2@" data-person-id="@C@" data-relation="child"/);
+  assert.ok(new Resvg(svg).render().width > 0);
+});
