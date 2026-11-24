@@ -1,5 +1,11 @@
 /** English UI strings for Anafim */
 export default {
+  'chart.mode': 'Chart type',
+  'chart.ancestors': 'Ancestors',
+  'chart.descendants': 'Descendants',
+  'chart.descendantGenerations': 'Generations of descendants (including selected person)',
+  'chart.two': '2 generations',
+  'chart.descendantExplanation': 'The selected person is the first generation; two generations include their children, and three include grandchildren. Documented partners of descendants are shown, including in the last generation, but not partners’ children from other relationships. Each person appears once. A dot represents a family and an arrow points to a child; crossing lines without a dot are not connected.',
   'chart.five': '5 generations',
   'chart.six': '6 generations',
   'chart.branches': 'Show side branches: siblings of the selected person and their ancestors, with partners and children',
