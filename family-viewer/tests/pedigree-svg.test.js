@@ -450,10 +450,25 @@ test('sex styling and unique people are retained in compact branch rings', () =>
 1 CHIL @K2@
 1 CHIL @K3@`));
   const svg = createPedigreeSvg(data, '@F@', {...opts, includeBranches:true, showPlaces:true});
+  assert.match(svg, /dashed ring: children of one family/);
   for (const [id, sex, radius] of [['@K1@','M',2], ['@K2@','F',15], ['@K3@','other',6]]) {
     const pattern = new RegExp(`class="person" data-person-id="${id}" data-compact="true"><rect[^>]*rx="${radius}" data-sex="${sex}"`);
     assert.match(svg, pattern);
     assert.equal((svg.match(new RegExp(`class="person" data-person-id="${id}"`, 'g')) || []).length, 1);
   }
   assert.ok(new Resvg(svg).render().width > 0);
+});
+
+
+test('short chart footer keeps essential legends without extra attribution or device text', () => {
+  const data = parseGedcom(DEMO_TEXT);
+  for (const mode of ['ancestors', 'descendants']) for (const lang of ['he', 'en']) {
+    const svg = createPedigreeSvg(data, '@I1@', { mode, lang, date });
+    assert.doesNotMatch(svg, /נוצר במכשיר|created on this device/i);
+    assert.doesNotMatch(svg, /מעגל מקווקו: ילדי אותה משפחה|dashed ring: children of one family/);
+    assert.ok(!svg.includes(new Intl.DateTimeFormat(lang === 'he' ? 'he-IL' : 'en-GB').format(date)));
+    assert.ok(svg.includes(lang === 'he' ? 'נקודה: משפחה' : 'Dot: family'));
+    assert.ok(svg.includes(lang === 'he' ? 'מין מתועד:' : 'Recorded sex:'));
+    assert.ok(new Resvg(svg).render().width > 0);
+  }
 });

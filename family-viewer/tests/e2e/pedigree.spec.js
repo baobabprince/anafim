@@ -45,6 +45,7 @@ test('preview, switch generations, download and print the selected family chart'
   expect(svg).toContain('data-sex="F"');
   expect(svg).toContain('data-sex="M"');
   expect(svg).toContain('מין מתועד');
+  expect(svg).not.toContain('נוצר במכשיר');
   expect(svg).not.toContain('lengthAdjust=');
   expect(svg).toContain('תל אביב');
   await dialog.getByLabel('סוג התרשים').selectOption('descendants');
@@ -65,6 +66,7 @@ test('preview, switch generations, download and print the selected family chart'
   expect(descendantSvg).toContain('width="420mm"');
   expect(descendantSvg).toContain('data-sex="F"');
   expect(descendantSvg).toContain('data-sex="M"');
+  expect(descendantSvg).not.toContain('נוצר במכשיר');
   await dialog.getByLabel('סוג התרשים').selectOption('ancestors');
   await expect(dialog.getByLabel('דורות של אבות ואימהות')).toHaveValue('6');
   await expect(dialog.getByLabel(/הצגת ענפים צדדיים/)).toBeChecked();

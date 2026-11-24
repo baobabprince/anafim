@@ -11,7 +11,6 @@ export default function PedigreeDialog({ Dialog, data, person, parentFamily, onC
   const [mode, setMode] = useState('ancestors');
   const [generations, setGenerations] = useState(3);
   const [descendantGenerations, setDescendantGenerations] = useState(3);
-  const [date] = useState(() => new Date());
   const [includeBranches, setIncludeBranches] = useState(false);
   const [branchGenerations, setBranchGenerations] = useState(1);
   const [compactBranches, setCompactBranches] = useState(true);
@@ -19,7 +18,7 @@ export default function PedigreeDialog({ Dialog, data, person, parentFamily, onC
   const [paper, setPaper] = useState('A4');
   const [zoom, setZoom] = useState(100);
   const chartGenerations = mode === 'descendants' ? descendantGenerations : generations;
-  const svg = useMemo(() => createPedigreeSvg(data, person.id, { generations: chartGenerations, mode, parentFamily, includeBranches, branchGenerations, compactBranches, showPlaces, paper, lang, date, fonts: chartFonts }), [data, person.id, chartGenerations, mode, parentFamily, includeBranches, branchGenerations, compactBranches, showPlaces, paper, lang, date]);
+  const svg = useMemo(() => createPedigreeSvg(data, person.id, { generations: chartGenerations, mode, parentFamily, includeBranches, branchGenerations, compactBranches, showPlaces, paper, lang, fonts: chartFonts }), [data, person.id, chartGenerations, mode, parentFamily, includeBranches, branchGenerations, compactBranches, showPlaces, paper, lang]);
   const download = () => {
     const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
     const a = document.createElement('a');

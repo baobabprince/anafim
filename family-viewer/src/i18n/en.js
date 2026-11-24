@@ -23,7 +23,7 @@ export default {
   'chart.four': '4 generations',
   'chart.explanation': 'Each person appears once. A dot represents a family and an arrow points to a child; crossing lines without a dot are not connected. Siblings who share a parent in the selected family or in that parent’s other families are shown. Side branches include their families and descendants; eligible children of one family without other connections in the chart may be arranged in a compact circle (starting from three).',
   'chart.preview': 'Chart preview',
-  'chart.printHint': 'The chart is generated on your device as vector SVG with an embedded Hebrew and Latin font. When printing or saving as PDF, check the paper size and orientation match your selection. Other scripts may use fallback fonts.',
+  'chart.printHint': 'The chart is saved as vector SVG with an embedded Hebrew and Latin font. When printing or saving as PDF, check the paper size and orientation match your selection. Other scripts may use fallback fonts.',
   'chart.download': 'Download SVG',
   'chart.print': 'Print / PDF',
   'chart.open': 'Printable chart',
