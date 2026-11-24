@@ -8,6 +8,11 @@ test('preview, switch generations, download and print the selected family chart'
   await page.getByRole('button', {name: 'תרשים להדפסה'}).click();
   const dialog = page.getByRole('dialog', {name: 'ייצוא תרשים משפחתי'});
   await expect(dialog.locator('.chart-preview')).toContainText('תמר לוין');
+  await expect(dialog.locator('.chart-preview .person[data-person-id="@I1@"] rect')).toHaveAttribute('data-sex', 'F');
+  await expect(dialog.locator('.chart-preview .person[data-person-id="@I1@"] rect')).toHaveAttribute('rx', '15');
+  await expect(dialog.locator('.chart-preview .person[data-person-id="@I2@"] rect')).toHaveAttribute('data-sex', 'M');
+  await expect(dialog.locator('.chart-preview .person[data-person-id="@I2@"] rect')).toHaveAttribute('rx', '2');
+  await expect(dialog.locator('.chart-preview')).toContainText('מין מתועד');
   await expect(dialog.locator('.chart-preview')).not.toContainText('שלמה לוין');
   await dialog.getByLabel('דורות של אבות ואימהות').selectOption('4');
   await expect(dialog.locator('.chart-preview')).toContainText('שלמה לוין');
@@ -37,6 +42,9 @@ test('preview, switch generations, download and print the selected family chart'
   expect(svg).toContain('שלמה לוין');
   expect(svg).toContain('width="420mm"');
   expect(svg).toContain('data:font/ttf;base64,');
+  expect(svg).toContain('data-sex="F"');
+  expect(svg).toContain('data-sex="M"');
+  expect(svg).toContain('מין מתועד');
   expect(svg).not.toContain('lengthAdjust=');
   expect(svg).toContain('תל אביב');
   await dialog.getByLabel('סוג התרשים').selectOption('descendants');
@@ -55,6 +63,8 @@ test('preview, switch generations, download and print the selected family chart'
   expect(descendantSvg).not.toContain('שלמה לוין');
   expect(descendantSvg).toContain('דורות של צאצאים');
   expect(descendantSvg).toContain('width="420mm"');
+  expect(descendantSvg).toContain('data-sex="F"');
+  expect(descendantSvg).toContain('data-sex="M"');
   await dialog.getByLabel('סוג התרשים').selectOption('ancestors');
   await expect(dialog.getByLabel('דורות של אבות ואימהות')).toHaveValue('6');
   await expect(dialog.getByLabel(/הצגת ענפים צדדיים/)).toBeChecked();

@@ -1,5 +1,6 @@
 /** English UI strings for Anafim */
 export default {
+  'chart.sexLegend': 'Recorded sex: square corners for male, rounded corners for female, and a dashed box for other or not recorded.',
   'chart.mode': 'Chart type',
   'chart.ancestors': 'Ancestors',
   'chart.descendants': 'Descendants',

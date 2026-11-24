@@ -1,5 +1,6 @@
 /** Hebrew UI strings for Anafim */
 export default {
+  'chart.sexLegend': 'מין מתועד: פינות חדות לזכר, פינות עגולות לנקבה ומסגרת מקווקוות לאחר או לא צוין.',
   'chart.mode': 'סוג התרשים',
   'chart.ancestors': 'אבות ואימהות',
   'chart.descendants': 'צאצאים',

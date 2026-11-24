@@ -378,3 +378,82 @@ test('six descendant generations include the focus and stop before the seventh',
   const svg = createPedigreeSvg(data, '@P0@', {...opts, mode:'descendants', generations:6});
   assert.match(svg, /Generation6/); assert.doesNotMatch(svg, /Generation7/);
 });
+
+test('documented sex uses distinct shapes with a readable legend and does not infer missing values', () => {
+  const data = parseGedcom(wrap(`0 @M@ INDI
+1 NAME Male
+1 SEX m
+0 @F@ INDI
+1 NAME Female
+1 SEX F
+0 @U@ INDI
+1 NAME Unspecified
+0 @X@ INDI
+1 NAME Other
+1 SEX X
+0 @FAM@ FAM
+1 HUSB @M@
+1 WIFE @F@
+1 CHIL @U@
+1 CHIL @X@`));
+  for (const mode of ['ancestors','descendants']) {
+    const svg = createPedigreeSvg(data, mode === 'ancestors' ? '@U@' : '@M@', {...opts, mode, generations:3});
+    const box = id => svg.match(new RegExp(`<g class="person" data-person-id="${id}"[^>]*><rect ([^>]+)/>`))[1];
+    assert.match(box('@M@'), /rx="2" data-sex="M"/);
+    assert.match(box('@F@'), /rx="15" data-sex="F"/);
+    assert.match(box('@U@'), /rx="6" data-sex="other"/);
+    assert.match(box('@X@'), /rx="6" data-sex="other"/);
+    assert.match(svg, /stroke-dasharray:4 2/);
+    assert.match(svg, /Recorded sex: square corners/);
+    assert.match(svg, /<title>Female — female<\/title>/);
+    assert.match(svg, /<title>Unspecified — other or not recorded<\/title>/);
+    assert.equal((svg.match(/class="person" data-person-id="@M@"/g) || []).length, 1);
+    assert.ok(new Resvg(svg).render().width > 0);
+  }
+  // Family roles are not a substitute for an explicit SEX field.
+  data.people['@M@'].sex = '';
+  data.people['@F@'].sex = undefined;
+  const he = createPedigreeSvg(data, '@U@', {lang:'he', date});
+  assert.match(he, /מין מתועד/);
+  assert.match(he, /data-person-id="@M@"><rect[^>]*data-sex="other"/);
+  assert.match(he, /data-person-id="@F@"><rect[^>]*data-sex="other"/);
+});
+
+test('sex styling and unique people are retained in compact branch rings', () => {
+  const data = parseGedcom(wrap(`0 @F@ INDI
+1 NAME Focus
+0 @P@ INDI
+1 NAME Parent
+0 @G@ INDI
+1 NAME Grandparent
+0 @U@ INDI
+1 NAME Aunt
+0 @K1@ INDI
+1 NAME One
+1 SEX M
+0 @K2@ INDI
+1 NAME Two
+1 SEX F
+0 @K3@ INDI
+1 NAME Three
+1 SEX U
+0 @PF@ FAM
+1 HUSB @P@
+1 CHIL @F@
+0 @GF@ FAM
+1 HUSB @G@
+1 CHIL @P@
+1 CHIL @U@
+0 @UF@ FAM
+1 WIFE @U@
+1 CHIL @K1@
+1 CHIL @K2@
+1 CHIL @K3@`));
+  const svg = createPedigreeSvg(data, '@F@', {...opts, includeBranches:true, showPlaces:true});
+  for (const [id, sex, radius] of [['@K1@','M',2], ['@K2@','F',15], ['@K3@','other',6]]) {
+    const pattern = new RegExp(`class="person" data-person-id="${id}" data-compact="true"><rect[^>]*rx="${radius}" data-sex="${sex}"`);
+    assert.match(svg, pattern);
+    assert.equal((svg.match(new RegExp(`class="person" data-person-id="${id}"`, 'g')) || []).length, 1);
+  }
+  assert.ok(new Resvg(svg).render().width > 0);
+});
