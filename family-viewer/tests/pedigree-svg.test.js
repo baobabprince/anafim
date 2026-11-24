@@ -231,3 +231,150 @@ test('compact rings accommodate multiline places without overlaps', () => {
     assert.ok(Math.abs(rects[i].x-rects[j].x) >= 126 || rects[i].y+rects[i].h <= rects[j].y || rects[j].y+rects[j].h <= rects[i].y);
   }
 });
+
+test('descendant mode follows each documented union by depth, not partners or ancestors', () => {
+  const data = parseGedcom(wrap(`0 @ROOT@ INDI
+1 NAME Focus
+0 @P@ INDI
+1 NAME Parent
+0 @S1@ INDI
+1 NAME PartnerOne
+0 @S2@ INDI
+1 NAME PartnerTwo
+0 @C1@ INDI
+1 NAME FirstChild
+1 FAMC @F1@
+2 PEDI adopted
+0 @C2@ INDI
+1 NAME SecondChild
+0 @CS@ INDI
+1 NAME ChildPartner
+0 @G@ INDI
+1 NAME Grandchild
+0 @GS@ INDI
+1 NAME GrandchildPartner
+0 @GG@ INDI
+1 NAME GreatGrandchild
+0 @X@ INDI
+1 NAME PartnerOtherChild
+0 @OTHER@ INDI
+1 NAME OtherPartner
+0 @PF@ FAM
+1 HUSB @P@
+1 CHIL @ROOT@
+0 @F1@ FAM
+1 HUSB @ROOT@
+1 WIFE @S1@
+1 CHIL @C1@
+0 @F2@ FAM
+1 HUSB @ROOT@
+1 WIFE @S2@
+1 CHIL @C2@
+0 @CF@ FAM
+1 HUSB @C1@
+1 WIFE @CS@
+1 CHIL @G@
+0 @GF@ FAM
+1 HUSB @G@
+1 WIFE @GS@
+1 CHIL @GG@
+0 @SF@ FAM
+1 HUSB @OTHER@
+1 WIFE @S1@
+1 CHIL @X@`));
+  const two = buildPedigreeGraph(data, '@ROOT@', { mode:'descendants', generations:2 });
+  assert.deepEqual([...two.people.keys()].sort(), ['@ROOT@','@S1@','@S2@','@C1@','@C2@','@CS@'].sort());
+  assert.deepEqual([...two.families.get('@F1@').children], ['@C1@']);
+  assert.deepEqual([...two.families.get('@F2@').children], ['@C2@']);
+  assert.deepEqual([...two.families.get('@CF@').partners].sort(), ['@C1@','@CS@']);
+  assert.equal(two.families.get('@CF@').children.size, 0);
+  assert.ok(!two.families.has('@SF@'));
+  const three = buildPedigreeGraph(data, '@ROOT@', { mode:'descendants', generations:3 });
+  assert.ok(three.people.has('@G@')); assert.ok(three.people.has('@GS@'));
+  assert.ok(!three.people.has('@GG@')); assert.ok(!three.people.has('@P@')); assert.ok(!three.people.has('@X@'));
+  assert.deepEqual([...three.families.get('@CF@').children], ['@G@']);
+  assert.deepEqual([...three.families.get('@GF@').partners].sort(), ['@G@','@GS@']);
+  const svg = createPedigreeSvg(data, '@ROOT@', {...opts, mode:'descendants', generations:3, showPlaces:true, paper:'A3'});
+  assert.match(svg, /generations of descendants/);
+  assert.match(svg, /width="420mm" height="297mm"/);
+  assert.match(svg, /data-family-id="@F1@" data-person-id="@C1@" data-relation="child"><polyline class="line nonbirth"/);
+  for (const id of three.people.keys()) assert.equal((svg.match(new RegExp(`class="person" data-person-id="${id}"`, 'g')) || []).length, 1, id);
+  assert.ok(new Resvg(svg).render().width > 0);
+  assert.ok(buildPedigreeGraph(data, '@ROOT@', { mode:'descendants', generations:4 }).people.has('@GG@'));
+});
+
+test('descendant traversal preserves shared relationships and terminates on cycles', () => {
+  const data = parseGedcom(wrap(`0 @A@ INDI
+1 NAME Focus
+0 @B@ INDI
+1 NAME ChildOne
+0 @C@ INDI
+1 NAME ChildTwo
+0 @D@ INDI
+1 NAME SharedGrandchild
+0 @E@ INDI
+1 NAME GreatGrandchild
+0 @F1@ FAM
+1 HUSB @A@
+1 CHIL @B@
+1 CHIL @C@
+0 @F2@ FAM
+1 HUSB @B@
+1 WIFE @C@
+1 CHIL @D@
+0 @F3@ FAM
+1 HUSB @D@
+1 CHIL @E@
+0 @F4@ FAM
+1 HUSB @E@
+1 CHIL @A@`));
+  const svg = createPedigreeSvg(data, '@A@', {...opts, mode:'descendants', generations:6});
+  const model = buildPedigreeGraph(data, '@A@', {mode:'descendants', generations:6});
+  assert.equal(model.people.size, 5);
+  assert.deepEqual([...model.families.get('@F2@').partners].sort(), ['@B@','@C@']);
+  assert.deepEqual([...model.families.get('@F2@').children], ['@D@']);
+  assert.deepEqual([...model.families.get('@F4@').children], ['@A@']);
+  for (const id of model.people.keys()) assert.equal((svg.match(new RegExp(`class="person" data-person-id="${id}"`, 'g')) || []).length, 1);
+  assert.ok(new Resvg(svg).render().width > 0);
+});
+
+test('descendant cutoff retains a documented link between already visible people', () => {
+  const data = parseGedcom(wrap(`0 @A@ INDI
+1 NAME Root
+0 @B@ INDI
+1 NAME Child
+0 @C@ INDI
+1 NAME PartnerAndChild
+0 @F1@ FAM
+1 HUSB @A@
+1 CHIL @B@
+1 CHIL @C@
+0 @F2@ FAM
+1 HUSB @B@
+1 CHIL @C@`));
+  const model = buildPedigreeGraph(data, '@A@', {mode:'descendants', generations:2});
+  assert.deepEqual([...model.families.get('@F2@').children], ['@C@']);
+  const svg = createPedigreeSvg(data, '@A@', {...opts, mode:'descendants', generations:2});
+  assert.match(svg, /data-family-id="@F2@" data-person-id="@C@" data-relation="child"/);
+  assert.equal((svg.match(/class="person" data-person-id="@C@"/g) || []).length, 1);
+});
+
+test('descendant chart supports a single person with no known family', () => {
+  const data = parseGedcom(wrap('0 @A@ INDI\n1 NAME Only Person'));
+  const model = buildPedigreeGraph(data, '@A@', {mode:'descendants', generations:2});
+  assert.equal(model.people.size, 1); assert.equal(model.families.size, 0);
+  const svg = createPedigreeSvg(data, '@A@', {...opts, mode:'descendants', generations:2});
+  assert.match(svg, /Only Person/); assert.ok(new Resvg(svg).render().width > 0);
+});
+
+test('six descendant generations include the focus and stop before the seventh', () => {
+  const people = Array.from({length:7}, (_,i) => `0 @P${i}@ INDI\n1 NAME Generation${i+1}`).join('\n');
+  const families = Array.from({length:6}, (_,i) => `0 @F${i}@ FAM\n1 HUSB @P${i}@\n1 CHIL @P${i+1}@`).join('\n');
+  const data = parseGedcom(wrap(`${people}\n${families}`));
+  const model = buildPedigreeGraph(data, '@P0@', {mode:'descendants', generations:6});
+  assert.equal(model.people.size, 6);
+  assert.ok(model.people.has('@P5@')); assert.ok(!model.people.has('@P6@'));
+  assert.ok(!model.families.has('@F5@'));
+  const svg = createPedigreeSvg(data, '@P0@', {...opts, mode:'descendants', generations:6});
+  assert.match(svg, /Generation6/); assert.doesNotMatch(svg, /Generation7/);
+});

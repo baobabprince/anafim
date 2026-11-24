@@ -63,9 +63,11 @@ export function wrapChartText(value, maxWidth, fontSize = 13) {
 }
 
 /** Select people and documented family edges before layout. IDs, not names, are identities. */
-export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1 } = {}) {
+export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, mode = 'ancestors' } = {}) {
   if (!data?.people?.[focusId]) throw new Error('Focus person not found');
-  generations = Number.isInteger(generations) && generations >= 3 && generations <= 6 ? generations : 3;
+  mode = mode === 'descendants' ? 'descendants' : 'ancestors';
+  const minGenerations = mode === 'descendants' ? 2 : 3;
+  generations = Number.isInteger(generations) && generations >= minGenerations && generations <= 6 ? generations : 3;
   branchGenerations = Number.isInteger(branchGenerations) && branchGenerations >= 1 && branchGenerations <= 3 ? branchGenerations : 1;
   const people = new Map();
   const families = new Map();
@@ -80,6 +82,35 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
   const addPartner = (entry, id) => { if (data.people[id]) { addPerson(id); entry.partners.add(id); } };
   const addChild = (entry, id) => { if (data.people[id]) { addPerson(id); entry.children.add(id); } };
   addPerson(focusId);
+
+  if (mode === 'descendants') {
+    // The selected person is generation 1. Breadth-first traversal finds the
+    // shortest path to each descendant, bounds cycles, and expands each union
+    // separately. Partners are displayed but never traversed as descendants.
+    const depth = new Map([[focusId, 0]]);
+    const queue = [focusId];
+    for (let index = 0; index < queue.length; index++) {
+      const id = queue[index], level = depth.get(id);
+      for (const fid of new Set(data.people[id].spouseFamilies || [])) {
+        const family = data.families[fid];
+        if (!family || !family.partners.includes(id)) continue;
+        const entry = familyEntry(fid);
+        for (const partner of new Set(family.partners)) addPartner(entry, partner);
+        if (level < generations - 1) for (const child of new Set(family.children)) {
+          if (!data.people[child]) continue;
+          addChild(entry, child);
+          if (!depth.has(child)) { depth.set(child, level + 1); queue.push(child); }
+        }
+      }
+    }
+    // Preserve all recorded child links among already visible people, even
+    // when an individual was reached by another, shorter descendant path.
+    for (const [fid, entry] of families) {
+      for (const child of new Set(data.families[fid].children)) if (people.has(child)) addChild(entry, child);
+      if (entry.partners.size < 2 && !entry.children.size) families.delete(fid);
+    }
+    return { people, families, generations, mode, branchDescendants, corePeople };
+  }
 
   // Include each individual's documented unions, and at most the requested
   // generations of descendants. Multiple unions remain separate family nodes.
@@ -154,11 +185,11 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
   visitAncestor(focusId, 0, new Set());
   // A single child with no visible parents conveys no relationship.
   for (const [id, family] of families) if (!family.partners.size && family.children.size < 2) families.delete(id);
-  return { people, families, generations, branchDescendants, corePeople };
+  return { people, families, generations, mode, branchDescendants, corePeople };
 }
 
-export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, compactBranches = true, showPlaces = false, paper = 'A4', fonts = {}, lang = 'he', date = new Date() } = {}) {
-  const model = buildPedigreeGraph(data, focusId, { generations, parentFamily, includeBranches, branchGenerations });
+export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, compactBranches = true, showPlaces = false, paper = 'A4', fonts = {}, lang = 'he', date = new Date(), mode = 'ancestors' } = {}) {
+  const model = buildPedigreeGraph(data, focusId, { generations, parentFamily, includeBranches, branchGenerations, mode });
   const en = lang === 'en';
   const page = CHART_PAPERS[paper] || CHART_PAPERS.A4;
   const pick = (he, english) => en ? english : he;
@@ -199,7 +230,7 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
   // family can share a ring. Cross-links, ancestors and people with partners
   // remain ordinary nodes; no person or relationship is hidden or duplicated.
   const clusters = new Map(), familyClusters = new Map(), clusteredPeople = new Set();
-  if (compactBranches && includeBranches) for (const [fid, family] of model.families) {
+  if (model.mode === 'ancestors' && compactBranches && includeBranches) for (const [fid, family] of model.families) {
     const children = [...family.children].filter(id => {
       const type = model.people.get(id)?.parentFamilies?.find(p => p.id === fid)?.type?.toLowerCase();
       return model.branchDescendants.has(id) && !model.corePeople.has(id) && childCounts.get(id) === 1 && !partnerIds.has(id) && (!type || type === 'birth');
@@ -248,8 +279,12 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
   dagre.layout(graph);
   const width = Math.max(800, graph.graph().width + 40);
   const title = pick(`אילן משפחתי של ${data.people[focusId].name}`, `Family chart of ${data.people[focusId].name}`);
-  const subtitle = pick(`${model.generations} דורות אחורה · ענפים`, `${model.generations} generations of ancestors · Anafim`);
-  const legend = pick('נקודה מסמנת משפחה · חץ מצביע על ילד/ה · מסגרת בקו מקווקו מאגדת ילדים של אותה משפחה · חציית קווים אינה קשר', 'Dot: family · arrow: child · dashed ring: children of one family · crossing lines are not connected');
+  const subtitle = model.mode === 'descendants'
+    ? pick(`${model.generations} דורות של צאצאים (כולל האדם הנבחר) · ענפים`, `${model.generations} generations of descendants (including selected person) · Anafim`)
+    : pick(`${model.generations} דורות אחורה · ענפים`, `${model.generations} generations of ancestors · Anafim`);
+  const legend = model.mode === 'descendants'
+    ? pick('נקודה מסמנת משפחה · חץ מצביע על ילד/ה · חציית קווים אינה קשר', 'Dot: family · arrow: child · crossing lines are not connected')
+    : pick('נקודה מסמנת משפחה · חץ מצביע על ילד/ה · מסגרת בקו מקווקו מאגדת ילדים של אותה משפחה · חציית קווים אינה קשר', 'Dot: family · arrow: child · dashed ring: children of one family · crossing lines are not connected');
   const titleLines = wrapChartText(title, width - 70, 20);
   const legendLines = wrapChartText(legend, width - 70, 12);
   const offsetX = (width - graph.graph().width) / 2;
