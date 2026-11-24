@@ -206,7 +206,7 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
   return { people, families, generations, mode, branchDescendants, corePeople };
 }
 
-export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, compactBranches = true, compactDescendants = false, showPlaces = false, paper = 'A4', fonts = {}, lang = 'he', mode = 'ancestors' } = {}) {
+export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, compactBranches = true, showPlaces = false, paper = 'A4', fonts = {}, lang = 'he', mode = 'ancestors' } = {}) {
   const model = buildPedigreeGraph(data, focusId, { generations, parentFamily, includeBranches, branchGenerations, mode });
   const en = lang === 'en';
   const page = CHART_PAPERS[paper] || CHART_PAPERS.A4;
@@ -252,16 +252,16 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
   }
   // Group only terminal people with a single displayed parent family. Extra
   // links, partners and non-birth relationships retain their ordinary nodes.
-  // In descendant mode use the deepest generation actually present, even
-  // when the selected limit extends beyond the recorded descendants.
+  // In descendant mode terminal siblings may be grouped at any visible
+  // depth, even when another branch continues into later generations.
   const clusters = new Map(), familyClusters = new Map(), clusteredPeople = new Set();
-  const useRings = model.mode === 'ancestors' ? compactBranches && includeBranches : compactDescendants;
+  const useRings = model.mode === 'ancestors' ? compactBranches && includeBranches : true;
   if (useRings) for (const [fid, family] of model.families) {
     const children = [...family.children].filter(id => {
       const type = model.people.get(id)?.parentFamilies?.find(p => p.id === fid)?.type?.toLowerCase();
       const eligibleGeneration = model.mode === 'ancestors'
         ? model.branchDescendants.has(id) && !model.corePeople.has(id)
-        : model.lastDescendantDepth > 0 && model.descendantDepth.get(id) === model.lastDescendantDepth;
+        : model.descendantDepth.has(id);
       return eligibleGeneration && childCounts.get(id) === 1 && !partnerIds.has(id) && (!type || type === 'birth');
     });
     if (children.length < 3) continue;

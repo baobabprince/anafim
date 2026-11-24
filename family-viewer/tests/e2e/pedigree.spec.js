@@ -53,16 +53,10 @@ test('preview, switch generations, download and print the selected family chart'
   await expect(dialog.locator('.chart-preview')).toContainText('נועה כהן');
   await expect(dialog.locator('.chart-preview')).not.toContainText('דוד לוין');
   await dialog.getByLabel('דורות של צאצאים (כולל האדם הנבחר)').selectOption('2');
-  const compactDescendants = dialog.getByLabel('הצגה מעגלית לדור הצאצאים האחרון');
-  await expect(compactDescendants).not.toBeChecked();
-  await expect(dialog.locator('.chart-preview .branch-ring')).toHaveCount(0);
-  await compactDescendants.check();
+  await expect(dialog.getByLabel('הצגה מעגלית לדור הצאצאים האחרון')).toHaveCount(0);
   await expect(dialog.locator('.chart-preview svg')).toHaveAttribute('data-layout', 'family-tree');
   await expect(dialog.locator('.chart-preview .branch-ring')).toHaveCount(1);
   await expect(dialog.locator('.chart-preview .person[data-compact="true"]')).toHaveCount(3);
-  await compactDescendants.uncheck();
-  await expect(dialog.locator('.chart-preview .branch-ring')).toHaveCount(0);
-  await compactDescendants.check();
   await expect(dialog.locator('.chart-preview .person[data-person-id="@I1@"]')).toHaveCount(1);
   const descendantIds = await dialog.locator('.chart-preview .person').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-person-id')));
   expect(new Set(descendantIds).size).toBe(descendantIds.length);
@@ -84,7 +78,7 @@ test('preview, switch generations, download and print the selected family chart'
   await expect(dialog.getByLabel(/הצגת ענפים צדדיים/)).toBeChecked();
   await dialog.getByLabel('סוג התרשים').selectOption('descendants');
   await expect(dialog.getByLabel('דורות של צאצאים (כולל האדם הנבחר)')).toHaveValue('2');
-  await expect(dialog.getByLabel('הצגה מעגלית לדור הצאצאים האחרון')).toBeChecked();
+  await expect(dialog.locator('.chart-preview .branch-ring')).toHaveCount(1);
   await page.evaluate(() => { window.print = () => { window.chartPrintVisible = document.body.classList.contains('chart-printing') && !!document.querySelector('.chart-print-output svg') && document.querySelector('.chart-print-output svg').textContent.includes('דורות של צאצאים') && [...document.head.querySelectorAll('style')].some(style => style.textContent.includes('size: A3 landscape'));  window.dispatchEvent(new Event('afterprint')); }; });
   await dialog.getByRole('button', {name: 'הדפסה / PDF'}).click();
   await expect.poll(() => page.evaluate(() => window.chartPrintVisible)).toBe(true);
@@ -145,4 +139,61 @@ test('recorded divorce and widowhood are distinct in preview, download and print
   await page.evaluate(() => { window.print = () => { window.endedUnionPrintCount = document.querySelectorAll('.chart-print-output .union-status').length; window.dispatchEvent(new Event('afterprint')); }; });
   await dialog.getByRole('button', {name:'הדפסה / PDF'}).click();
   await expect.poll(() => page.evaluate(() => window.endedUnionPrintCount)).toBe(2);
+});
+
+test('terminal sibling groups appear automatically at different branch depths in preview, SVG and print', async ({page}, testInfo) => {
+  const people = ['R','A','AP','B','C','D','G1','G2','G3','G4','G5','P1','P2','H1','H2','H3','J1','J2','J3']
+    .map(id => `0 @${id}@ INDI\n1 NAME Person${id}`).join('\n');
+  const fixture = `0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+${people}
+0 @ROOTF@ FAM
+1 HUSB @R@
+1 CHIL @A@
+1 CHIL @B@
+1 CHIL @C@
+1 CHIL @D@
+0 @AF@ FAM
+1 HUSB @A@
+1 WIFE @AP@
+1 CHIL @G1@
+1 CHIL @G2@
+1 CHIL @G3@
+1 CHIL @G4@
+1 CHIL @G5@
+0 @G1F@ FAM
+1 HUSB @G1@
+1 WIFE @P1@
+1 CHIL @H1@
+1 CHIL @H2@
+1 CHIL @H3@
+0 @G2F@ FAM
+1 HUSB @G2@
+1 WIFE @P2@
+1 CHIL @J1@
+1 CHIL @J2@
+1 CHIL @J3@
+0 TRLR`;
+  await page.goto('/');
+  if (!(await page.getByRole('dialog').isVisible())) await (testInfo.project.name === 'mobile' ? page.locator('.mobile-upload') : page.locator('.sidebar-upload')).click();
+  await page.getByLabel('בחירת קובץ GEDCOM', {exact:true}).setInputFiles({name:'branches.ged', mimeType:'text/plain', buffer:Buffer.from(fixture)});
+  await page.getByRole('button', {name:'פתיחת האילן שלי', exact:true}).click();
+  await expect(page.locator('.focus-card h2')).toContainText('PersonR');
+  await page.getByRole('button', {name:'תרשים להדפסה'}).click();
+  const dialog = page.getByRole('dialog', {name:'ייצוא תרשים משפחתי'});
+  await dialog.getByLabel('סוג התרשים').selectOption('descendants');
+  await dialog.getByLabel('דורות של צאצאים (כולל האדם הנבחר)').selectOption('4');
+  const preview = dialog.locator('.chart-preview');
+  await expect(preview.locator('.branch-ring')).toHaveCount(4);
+  await expect(dialog.getByLabel('הצגה מעגלית לדור הצאצאים האחרון')).toHaveCount(0);
+  for (const id of ['ROOTF','AF','G1F','G2F']) await expect(preview.locator(`.branch-ring[data-family-id="@${id}@"]`)).toHaveCount(1);
+  const downloadPromise = page.waitForEvent('download');
+  await dialog.getByRole('button', {name:'הורדת SVG'}).click();
+  const svg = await fs.readFile(await (await downloadPromise).path(), 'utf8');
+  for (const id of ['ROOTF','AF','G1F','G2F']) expect(svg).toContain(`class="branch-ring" data-family-id="@${id}@"`);
+  await page.evaluate(() => { window.print = () => { window.branchRingsAtPrint = document.querySelectorAll('.chart-print-output .branch-ring').length; window.dispatchEvent(new Event('afterprint')); }; });
+  await dialog.getByRole('button', {name:'הדפסה / PDF'}).click();
+  await expect.poll(() => page.evaluate(() => window.branchRingsAtPrint)).toBe(4);
 });
