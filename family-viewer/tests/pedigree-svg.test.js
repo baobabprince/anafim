@@ -378,3 +378,180 @@ test('six descendant generations include the focus and stop before the seventh',
   const svg = createPedigreeSvg(data, '@P0@', {...opts, mode:'descendants', generations:6});
   assert.match(svg, /Generation6/); assert.doesNotMatch(svg, /Generation7/);
 });
+
+test('documented sex uses distinct shapes with a readable legend and does not infer missing values', () => {
+  const data = parseGedcom(wrap(`0 @M@ INDI
+1 NAME Male
+1 SEX m
+0 @F@ INDI
+1 NAME Female
+1 SEX F
+0 @U@ INDI
+1 NAME Unspecified
+0 @X@ INDI
+1 NAME Other
+1 SEX X
+0 @FAM@ FAM
+1 HUSB @M@
+1 WIFE @F@
+1 CHIL @U@
+1 CHIL @X@`));
+  for (const mode of ['ancestors','descendants']) {
+    const svg = createPedigreeSvg(data, mode === 'ancestors' ? '@U@' : '@M@', {...opts, mode, generations:3});
+    const box = id => svg.match(new RegExp(`<g class="person" data-person-id="${id}"[^>]*><rect ([^>]+)/>`))[1];
+    assert.match(box('@M@'), /rx="2" data-sex="M"/);
+    assert.match(box('@F@'), /rx="15" data-sex="F"/);
+    assert.match(box('@U@'), /rx="6" data-sex="other"/);
+    assert.match(box('@X@'), /rx="6" data-sex="other"/);
+    assert.match(svg, /stroke-dasharray:4 2/);
+    assert.match(svg, /Recorded sex: square corners/);
+    assert.match(svg, /<title>Female — female<\/title>/);
+    assert.match(svg, /<title>Unspecified — other or not recorded<\/title>/);
+    assert.equal((svg.match(/class="person" data-person-id="@M@"/g) || []).length, 1);
+    assert.ok(new Resvg(svg).render().width > 0);
+  }
+  // Family roles are not a substitute for an explicit SEX field.
+  data.people['@M@'].sex = '';
+  data.people['@F@'].sex = undefined;
+  const he = createPedigreeSvg(data, '@U@', {lang:'he', date});
+  assert.match(he, /מין מתועד/);
+  assert.match(he, /data-person-id="@M@"><rect[^>]*data-sex="other"/);
+  assert.match(he, /data-person-id="@F@"><rect[^>]*data-sex="other"/);
+});
+
+test('sex styling and unique people are retained in compact branch rings', () => {
+  const data = parseGedcom(wrap(`0 @F@ INDI
+1 NAME Focus
+0 @P@ INDI
+1 NAME Parent
+0 @G@ INDI
+1 NAME Grandparent
+0 @U@ INDI
+1 NAME Aunt
+0 @K1@ INDI
+1 NAME One
+1 SEX M
+0 @K2@ INDI
+1 NAME Two
+1 SEX F
+0 @K3@ INDI
+1 NAME Three
+1 SEX U
+0 @PF@ FAM
+1 HUSB @P@
+1 CHIL @F@
+0 @GF@ FAM
+1 HUSB @G@
+1 CHIL @P@
+1 CHIL @U@
+0 @UF@ FAM
+1 WIFE @U@
+1 CHIL @K1@
+1 CHIL @K2@
+1 CHIL @K3@`));
+  const svg = createPedigreeSvg(data, '@F@', {...opts, includeBranches:true, showPlaces:true});
+  assert.match(svg, /dashed ring: children of one family/);
+  for (const [id, sex, radius] of [['@K1@','M',2], ['@K2@','F',15], ['@K3@','other',6]]) {
+    const pattern = new RegExp(`class="person" data-person-id="${id}" data-compact="true"><rect[^>]*rx="${radius}" data-sex="${sex}"`);
+    assert.match(svg, pattern);
+    assert.equal((svg.match(new RegExp(`class="person" data-person-id="${id}"`, 'g')) || []).length, 1);
+  }
+  assert.ok(new Resvg(svg).render().width > 0);
+});
+
+
+test('short chart footer keeps essential legends without extra attribution or device text', () => {
+  const data = parseGedcom(DEMO_TEXT);
+  for (const mode of ['ancestors', 'descendants']) for (const lang of ['he', 'en']) {
+    const svg = createPedigreeSvg(data, '@I1@', { mode, lang, date });
+    assert.doesNotMatch(svg, /נוצר במכשיר|created on this device/i);
+    assert.doesNotMatch(svg, /מעגל מקווקו: ילדי אותה משפחה|dashed ring: children of one family/);
+    assert.ok(!svg.includes(new Intl.DateTimeFormat(lang === 'he' ? 'he-IL' : 'en-GB').format(date)));
+    assert.ok(svg.includes(lang === 'he' ? 'נקודה: משפחה' : 'Dot: family'));
+    assert.ok(svg.includes(lang === 'he' ? 'מין מתועד:' : 'Recorded sex:'));
+    assert.ok(new Resvg(svg).render().width > 0);
+  }
+});
+
+test('optional descendant rings reduce width and preserve people, families, places and sex', () => {
+  const people = Array.from({length:12}, (_, i) => `0 @C${i}@ INDI\n1 NAME Child${i} /Family/\n1 SEX ${i%2 ? 'F' : 'M'}\n1 BIRT\n2 PLAC City District Country`).join('\n');
+  const children = Array.from({length:12}, (_, i) => `1 CHIL @C${i}@`).join('\n');
+  const data = parseGedcom(wrap(`0 @ROOT@ INDI\n1 NAME Focus\n0 @PART@ INDI\n1 NAME Partner\n${people}\n0 @FAM@ FAM\n1 HUSB @ROOT@\n1 WIFE @PART@\n${children}`));
+  const options = {...opts, mode:'descendants', generations:6, paper:'A3', showPlaces:true};
+  const normal = createPedigreeSvg(data, '@ROOT@', options);
+  const compact = createPedigreeSvg(data, '@ROOT@', {...options, compactDescendants:true});
+  assert.doesNotMatch(normal, /class="branch-ring"/);
+  assert.match(compact, /class="branch-ring" data-family-id="@FAM@"/);
+  assert.match(compact, /dashed ring: children of one family/);
+  assert.match(compact, /width="420mm" height="297mm"/);
+  const width = svg => Number(svg.match(/viewBox="0 0 ([\d.]+) /)[1]);
+  assert.ok(width(compact) < width(normal) * 0.7, `${width(compact)} vs ${width(normal)}`);
+  const relations = svg => [...svg.matchAll(/data-family-id="([^"]+)" data-person-id="([^"]+)" data-relation="(child|partner)"/g)].map(m => m.slice(1).join(':')).sort();
+  assert.deepEqual(relations(compact), relations(normal));
+  for (let i=0; i<12; i++) {
+    assert.equal((compact.match(new RegExp(`class="person" data-person-id="@C${i}@"`, 'g')) || []).length, 1);
+    assert.match(compact, new RegExp(`data-person-id="@C${i}@" data-compact="true"><rect[^>]*data-sex="${i%2 ? 'F' : 'M'}"`));
+    assert.ok(compact.includes(`Child${i} Family`));
+  }
+  const child = compact.match(/<g class="person" data-person-id="@C0@"[^>]*>([\s\S]*?)<\/g>/)[1];
+  assert.equal([...child.matchAll(/<text class="place"[^>]*>([^<]*)<\/text>/g)].map(m => m[1]).join(' '), 'Birth: City District Country');
+  const model = buildPedigreeGraph(data, '@ROOT@', options);
+  assert.equal(model.lastDescendantDepth, 1); // Even though six generations were requested.
+  assert.equal(model.descendantDepth.get('@C0@'), 1);
+  assert.ok(new Resvg(compact).render().width > 0);
+  const ancestors = {...opts, mode:'ancestors', includeBranches:true};
+  assert.equal(createPedigreeSvg(data, '@ROOT@', ancestors), createPedigreeSvg(data, '@ROOT@', {...ancestors, compactDescendants:true}));
+});
+
+test('descendant rings use only the deepest visible generation and follow the depth selector', () => {
+  const people = Array.from({length:4}, (_,i)=>`0 @C${i}@ INDI\n1 NAME Child${i}`).join('\n');
+  const grandchildren = Array.from({length:3}, (_,i)=>`0 @G${i}@ INDI\n1 NAME Grandchild${i}`).join('\n');
+  const children = Array.from({length:4}, (_,i)=>`1 CHIL @C${i}@`).join('\n');
+  const kids = Array.from({length:3}, (_,i)=>`1 CHIL @G${i}@`).join('\n');
+  const data = parseGedcom(wrap(`0 @R@ INDI\n1 NAME Root\n${people}\n${grandchildren}\n0 @ROOTF@ FAM\n1 HUSB @R@\n${children}\n0 @CF@ FAM\n1 HUSB @C0@\n${kids}`));
+  const two = createPedigreeSvg(data, '@R@', {...opts, mode:'descendants', generations:2, compactDescendants:true});
+  assert.match(two, /class="branch-ring" data-family-id="@ROOTF@"/);
+  assert.doesNotMatch(two, /Grandchild/);
+  for (const generation of [3,6]) {
+    const svg = createPedigreeSvg(data, '@R@', {...opts, mode:'descendants', generations:generation, compactDescendants:true});
+    assert.doesNotMatch(svg, /class="branch-ring" data-family-id="@ROOTF@"/);
+    assert.match(svg, /class="branch-ring" data-family-id="@CF@"/);
+    for (let i=0; i<4; i++) assert.doesNotMatch(svg, new RegExp(`data-person-id="@C${i}@" data-compact="true"`));
+    for (let i=0; i<3; i++) assert.match(svg, new RegExp(`data-person-id="@G${i}@" data-compact="true"`));
+  }
+});
+
+test('descendant rings keep adopted, multiply linked and partnered people outside the circle', () => {
+  const kids = Array.from({length:6}, (_,i)=>`0 @K${i}@ INDI\n1 NAME Kid${i}${i===0 ? '\n1 FAMC @F1@\n2 PEDI adopted' : ''}`).join('\n');
+  const familyChildren = Array.from({length:6}, (_,i)=>`1 CHIL @K${i}@`).join('\n');
+  const data = parseGedcom(wrap(`0 @R@ INDI\n1 NAME Root\n0 @P@ INDI\n1 NAME SecondPartner\n0 @Q@ INDI\n1 NAME ChildPartner\n${kids}\n0 @F1@ FAM\n1 HUSB @R@\n${familyChildren}\n0 @F2@ FAM\n1 HUSB @R@\n1 WIFE @P@\n1 CHIL @K5@\n0 @KF@ FAM\n1 HUSB @K1@\n1 WIFE @Q@`));
+  const options = {...opts, mode:'descendants', generations:2};
+  const svg = createPedigreeSvg(data, '@R@', {...options, compactDescendants:true});
+  assert.match(svg, /class="branch-ring" data-family-id="@F1@"/);
+  for (const id of ['@K0@','@K1@','@K5@']) assert.doesNotMatch(svg, new RegExp(`data-person-id="${id}" data-compact="true"`));
+  for (const id of ['@K2@','@K3@','@K4@']) assert.match(svg, new RegExp(`data-person-id="${id}" data-compact="true"`));
+  assert.match(svg, /data-family-id="@F1@" data-person-id="@K0@" data-relation="child"><polyline class="line nonbirth"/);
+  assert.match(svg, /data-family-id="@F1@" data-person-id="@K5@" data-relation="child"/);
+  assert.match(svg, /data-family-id="@F2@" data-person-id="@K5@" data-relation="child"/);
+  assert.match(svg, /data-family-id="@KF@" data-person-id="@K1@" data-relation="partner"/);
+  const model = buildPedigreeGraph(data, '@R@', options);
+  for (const id of model.people.keys()) assert.equal((svg.match(new RegExp(`class="person" data-person-id="${id}"`, 'g')) || []).length, 1, id);
+  assert.ok(new Resvg(svg).render().width > 0);
+});
+
+test('large descendant families split into non-overlapping rings', () => {
+  const children = Array.from({length:29}, (_, i) => `1 CHIL @K${i}@`).join('\n');
+  const people = Array.from({length:29}, (_, i) => `0 @K${i}@ INDI\n1 NAME Descendant${i}\n1 BIRT\n2 PLAC Long Place Name For A Person`).join('\n');
+  const data = parseGedcom(wrap(`0 @R@ INDI\n1 NAME Root\n${people}\n0 @F@ FAM\n1 HUSB @R@\n${children}`));
+  const svg = createPedigreeSvg(data, '@R@', {...opts, mode:'descendants', generations:2, compactDescendants:true, showPlaces:true});
+  assert.equal((svg.match(/class="branch-ring" data-family-id="@F@"/g) || []).length, 3);
+  const rects = [...svg.matchAll(/class="box compact-box" x="([-\d.]+)" y="([-\d.]+)" width="126" height="([\d.]+)"/g)].map(m => ({x:Number(m[1]),y:Number(m[2]),h:Number(m[3])}));
+  assert.equal(rects.length, 29);
+  for (let i=0; i<rects.length; i++) for (let j=0; j<i; j++) {
+    assert.ok(Math.abs(rects[i].x-rects[j].x) >= 126 || rects[i].y+rects[i].h <= rects[j].y || rects[j].y+rects[j].h <= rects[i].y);
+  }
+  for (let i=0; i<29; i++) {
+    assert.equal((svg.match(new RegExp(`class="person" data-person-id="@K${i}@"`, 'g')) || []).length, 1);
+    assert.equal((svg.match(new RegExp(`data-family-id="@F@" data-person-id="@K${i}@" data-relation="child"`, 'g')) || []).length, 1);
+  }
+});

@@ -109,7 +109,9 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
       for (const child of new Set(data.families[fid].children)) if (people.has(child)) addChild(entry, child);
       if (entry.partners.size < 2 && !entry.children.size) families.delete(fid);
     }
-    return { people, families, generations, mode, branchDescendants, corePeople };
+    let lastDescendantDepth = 0;
+    for (const level of depth.values()) lastDescendantDepth = Math.max(lastDescendantDepth, level);
+    return { people, families, generations, mode, branchDescendants, corePeople, descendantDepth: depth, lastDescendantDepth };
   }
 
   // Include each individual's documented unions, and at most the requested
@@ -188,7 +190,7 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
   return { people, families, generations, mode, branchDescendants, corePeople };
 }
 
-export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, compactBranches = true, showPlaces = false, paper = 'A4', fonts = {}, lang = 'he', date = new Date(), mode = 'ancestors' } = {}) {
+export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, compactBranches = true, compactDescendants = false, showPlaces = false, paper = 'A4', fonts = {}, lang = 'he', mode = 'ancestors' } = {}) {
   const model = buildPedigreeGraph(data, focusId, { generations, parentFamily, includeBranches, branchGenerations, mode });
   const en = lang === 'en';
   const page = CHART_PAPERS[paper] || CHART_PAPERS.A4;
@@ -226,14 +228,19 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
     for (const id of family.children) childCounts.set(id, (childCounts.get(id) || 0) + 1);
     for (const id of family.partners) partnerIds.add(id);
   }
-  // Only terminal side-branch descendants with a single displayed parent
-  // family can share a ring. Cross-links, ancestors and people with partners
-  // remain ordinary nodes; no person or relationship is hidden or duplicated.
+  // Group only terminal people with a single displayed parent family. Extra
+  // links, partners and non-birth relationships retain their ordinary nodes.
+  // In descendant mode use the deepest generation actually present, even
+  // when the selected limit extends beyond the recorded descendants.
   const clusters = new Map(), familyClusters = new Map(), clusteredPeople = new Set();
-  if (model.mode === 'ancestors' && compactBranches && includeBranches) for (const [fid, family] of model.families) {
+  const useRings = model.mode === 'ancestors' ? compactBranches && includeBranches : compactDescendants;
+  if (useRings) for (const [fid, family] of model.families) {
     const children = [...family.children].filter(id => {
       const type = model.people.get(id)?.parentFamilies?.find(p => p.id === fid)?.type?.toLowerCase();
-      return model.branchDescendants.has(id) && !model.corePeople.has(id) && childCounts.get(id) === 1 && !partnerIds.has(id) && (!type || type === 'birth');
+      const eligibleGeneration = model.mode === 'ancestors'
+        ? model.branchDescendants.has(id) && !model.corePeople.has(id)
+        : model.lastDescendantDepth > 0 && model.descendantDepth.get(id) === model.lastDescendantDepth;
+      return eligibleGeneration && childCounts.get(id) === 1 && !partnerIds.has(id) && (!type || type === 'birth');
     });
     if (children.length < 3) continue;
     // Split very large families into balanced rings to bound layout work and
@@ -282,14 +289,14 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
   const subtitle = model.mode === 'descendants'
     ? pick(`${model.generations} דורות של צאצאים (כולל האדם הנבחר) · ענפים`, `${model.generations} generations of descendants (including selected person) · Anafim`)
     : pick(`${model.generations} דורות אחורה · ענפים`, `${model.generations} generations of ancestors · Anafim`);
-  const legend = model.mode === 'descendants'
-    ? pick('נקודה מסמנת משפחה · חץ מצביע על ילד/ה · חציית קווים אינה קשר', 'Dot: family · arrow: child · crossing lines are not connected')
-    : pick('נקודה מסמנת משפחה · חץ מצביע על ילד/ה · מסגרת בקו מקווקו מאגדת ילדים של אותה משפחה · חציית קווים אינה קשר', 'Dot: family · arrow: child · dashed ring: children of one family · crossing lines are not connected');
+  const legend = pick('נקודה: משפחה · חץ: ילד/ה · חציית קווים אינה קשר', 'Dot: family · arrow: child · crossings: no link')
+    + (clusters.size ? pick(' · מעגל מקווקו: ילדי אותה משפחה', ' · dashed ring: children of one family') : '');
   const titleLines = wrapChartText(title, width - 70, 20);
-  const legendLines = wrapChartText(legend, width - 70, 12);
+  const sexLegend = pick('מין מתועד: פינות חדות — זכר · עגולות — נקבה · מסגרת מקווקוות — אחר/לא צוין', 'Recorded sex: square corners — male · rounded — female · dashed box — other/unspecified');
+  const legendLines = [...wrapChartText(legend, width - 70, 12), ...wrapChartText(sexLegend, width - 70, 12)];
   const offsetX = (width - graph.graph().width) / 2;
   const offsetY = Math.max(85, 65 + titleLines.length * 24);
-  const height = Math.max(450, graph.graph().height + offsetY + 55 + legendLines.length * 15);
+  const height = Math.max(450, graph.graph().height + offsetY + 39 + legendLines.length * 15);
   const label = (x, y, content, cls = 'label', extra = '') => `<text class="${cls}" x="${x}" y="${y}" direction="${cls === 'years' ? 'ltr' : direction(content)}"${extra}>${escapeXml(clean(content))}</text>`;
   const edges = graph.edges().map(edge => {
     const info = graph.edge(edge);
@@ -309,7 +316,13 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
   const personBox = (id, x, y, compact = false) => {
     const bw = compact ? compactWidth : boxWidth;
     const content = (compact ? compactContent : normalContent).get(id);
-    const fullName = model.people.get(id).name || '—';
+    const person = model.people.get(id);
+    const fullName = person.name || '—';
+    // Only explicit GEDCOM M/F values get binary styling; never infer from a name or family role.
+    const sex = String(person.sex || '').trim().toUpperCase();
+    const sexStyle = sex === 'M' || sex === 'F' ? sex : 'other';
+    const sexLabel = sexStyle === 'M' ? pick('זכר', 'male') : sexStyle === 'F' ? pick('נקבה', 'female') : pick('אחר או לא צוין', 'other or not recorded');
+    const radius = sexStyle === 'M' ? 2 : sexStyle === 'F' ? 15 : 6;
     const bh = content.height;
     const total = content.lines.reduce((sum, line) => sum + line.height, 0);
     let baseline = y - total / 2;
@@ -317,7 +330,7 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
       baseline += line.height;
       return label(x, baseline - 3, line.text, line.cls);
     }).join('');
-    return `<g class="person" data-person-id="${escapeXml(clean(id))}"${compact ? ' data-compact="true"' : ''}><rect class="box${id === focusId ? ' focus' : ''}${compact ? ' compact-box' : ''}" x="${x-bw/2}" y="${y-bh/2}" width="${bw}" height="${bh}" rx="6"/><title>${escapeXml(clean(fullName))}</title>${text}</g>`;
+    return `<g class="person" data-person-id="${escapeXml(clean(id))}"${compact ? ' data-compact="true"' : ''}><rect class="box${id === focusId ? ' focus' : ''}${compact ? ' compact-box' : ''}" x="${x-bw/2}" y="${y-bh/2}" width="${bw}" height="${bh}" rx="${radius}" data-sex="${sexStyle}"/><title>${escapeXml(clean(`${fullName} — ${sexLabel}`))}</title>${text}</g>`;
   };
   const boxes = [...model.people].filter(([id]) => !clusteredPeople.has(id)).map(([id]) => {
     const node = graph.node(personKey(id));
@@ -341,12 +354,10 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
     const node = graph.node(familyKey(id));
     return `<circle class="family-node" data-family-id="${escapeXml(clean(id))}" cx="${node.x + offsetX}" cy="${node.y + offsetY}" r="5"/>`;
   }).join('');
-  const dateLabel = new Intl.DateTimeFormat(en ? 'en-GB' : 'he-IL').format(date);
-  const footer = pick(`ענפים · נוצר במכשיר · ${dateLabel}`, `Anafim · created on this device · ${dateLabel}`);
   // Font data is supplied by the app build and must never be an external URL.
   const validFont = value => typeof value === 'string' && /^data:font\/ttf;base64,[A-Za-z0-9+/=]+$/.test(value);
   const embedded = validFont(fonts.regular) && validFont(fonts.bold);
   const fontCss = embedded ? `@font-face{font-family:AnafimChart;src:url('${fonts.regular}') format('truetype');font-weight:400}@font-face{font-family:AnafimChart;src:url('${fonts.bold}') format('truetype');font-weight:600}` : '';
   const fontMetadata = embedded && fonts.license ? `<metadata>${escapeXml(clean(fonts.license))}</metadata>` : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" class="pedigree-svg" width="${page.width}mm" height="${page.height}mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(clean(title))}"><defs><marker id="child-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#7a8a6a"/></marker></defs><style>${fontCss}.pedigree-svg .box{fill:#faf8f4;stroke:#5c6b4a;stroke-width:1.5}.pedigree-svg .focus{fill:#e8f0e0;stroke:#3d4f2f;stroke-width:2.2}.pedigree-svg .name,.pedigree-svg .years,.pedigree-svg .place,.pedigree-svg .title,.pedigree-svg .subtitle,.pedigree-svg .type{font-family:AnafimChart,Arial,sans-serif;text-anchor:middle;fill:#1a1a1a}.pedigree-svg .name{font-size:13px;font-weight:600;unicode-bidi:plaintext}.pedigree-svg .years{font-size:11px;fill:#555;direction:ltr}.pedigree-svg .place{font-size:10px;fill:#555;unicode-bidi:plaintext}.pedigree-svg .type{font-size:10px;fill:#6e7a5c;paint-order:stroke;stroke:#fffef9;stroke-width:3px}.pedigree-svg .title{font-size:20px;font-weight:600;unicode-bidi:plaintext}.pedigree-svg .subtitle{font-size:12px;fill:#666}.pedigree-svg .line{stroke:#7a8a6a;stroke-width:1.5;fill:none}.pedigree-svg .nonbirth{stroke-dasharray:5 3}.pedigree-svg .ring-outline{fill:#f5f8f0;stroke:#b3c1ac;stroke-width:1;stroke-dasharray:5 4}.pedigree-svg .compact-box{fill:#fffef9}.pedigree-svg .family-node{fill:#7a8a6a;stroke:#fffef9;stroke-width:1.5}</style>${fontMetadata}<rect width="100%" height="100%" fill="#fffef9"/>${titleLines.map((line, i) => label(width/2, 30 + i*24, line, 'title')).join('')}${label(width/2, 50 + (titleLines.length-1)*24, subtitle, 'subtitle')}${edges}${rings}${boxes}${familyNodes}${legendLines.map((line, i) => label(width/2, height-26-(legendLines.length-1-i)*15, line, 'subtitle')).join('')}${label(width/2, height-10, footer, 'subtitle')}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="pedigree-svg" width="${page.width}mm" height="${page.height}mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(clean(title))}"><defs><marker id="child-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#7a8a6a"/></marker></defs><style>${fontCss}.pedigree-svg .box{fill:#faf8f4;stroke:#5c6b4a;stroke-width:1.5}.pedigree-svg .box[data-sex="M"]{fill:#edf3f8}.pedigree-svg .box[data-sex="F"]{fill:#f8eef4}.pedigree-svg .box[data-sex="other"]{stroke-dasharray:4 2}.pedigree-svg .box.focus{fill:#e8f0e0;stroke:#3d4f2f;stroke-width:2.2}.pedigree-svg .name,.pedigree-svg .years,.pedigree-svg .place,.pedigree-svg .title,.pedigree-svg .subtitle,.pedigree-svg .type{font-family:AnafimChart,Arial,sans-serif;text-anchor:middle;fill:#1a1a1a}.pedigree-svg .name{font-size:13px;font-weight:600;unicode-bidi:plaintext}.pedigree-svg .years{font-size:11px;fill:#555;direction:ltr}.pedigree-svg .place{font-size:10px;fill:#555;unicode-bidi:plaintext}.pedigree-svg .type{font-size:10px;fill:#6e7a5c;paint-order:stroke;stroke:#fffef9;stroke-width:3px}.pedigree-svg .title{font-size:20px;font-weight:600;unicode-bidi:plaintext}.pedigree-svg .subtitle{font-size:12px;fill:#666}.pedigree-svg .line{stroke:#7a8a6a;stroke-width:1.5;fill:none}.pedigree-svg .nonbirth{stroke-dasharray:5 3}.pedigree-svg .ring-outline{fill:#f5f8f0;stroke:#b3c1ac;stroke-width:1;stroke-dasharray:5 4}.pedigree-svg .family-node{fill:#7a8a6a;stroke:#fffef9;stroke-width:1.5}</style>${fontMetadata}<rect width="100%" height="100%" fill="#fffef9"/>${titleLines.map((line, i) => label(width/2, 30 + i*24, line, 'title')).join('')}${label(width/2, 50 + (titleLines.length-1)*24, subtitle, 'subtitle')}${edges}${rings}${boxes}${familyNodes}${legendLines.map((line, i) => label(width/2, height-10-(legendLines.length-1-i)*15, line, 'subtitle')).join('')}</svg>`;
 }
