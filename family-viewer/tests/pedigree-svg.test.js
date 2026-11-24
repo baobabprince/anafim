@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseGedcom } from '../src/gedcom.js';
 import { DEMO_TEXT } from '../src/demo.js';
-import { buildPedigreeGraph, createPedigreeSvg } from '../src/pedigree-svg.js';
+import { buildPedigreeGraph, chartPrintNameSize, createPedigreeSvg, wrapChartText } from '../src/pedigree-svg.js';
+import fs from 'node:fs';
 import { Resvg } from '@resvg/resvg-js';
 
 const date = new Date('2026-11-23T12:00:00Z');
@@ -174,4 +175,59 @@ test('adopted or multi-family children retain their own labeled edges outside a 
   assert.match(svg, /data-family-id="@UF@" data-person-id="@K0@" data-relation="child"><polyline class="line nonbirth"/);
   assert.match(svg, />adopted<\/text>/);
   assert.match(svg, /class="person" data-person-id="@K1@" data-compact="true"/);
+});
+
+
+test('SVG embeds licensed fonts, remains vector, and changes physical paper size', () => {
+  const data = parseGedcom(DEMO_TEXT);
+  const font = path => `data:font/ttf;base64,${fs.readFileSync(new URL(path, import.meta.url)).toString('base64')}`;
+  const fonts = {regular:font('../public/fonts/heebo-400.ttf'), bold:font('../public/fonts/heebo-600.ttf'), license:fs.readFileSync(new URL('../licenses/Heebo-OFL.txt', import.meta.url), 'utf8')};
+  const a4 = createPedigreeSvg(data, '@I1@', {...opts, fonts});
+  const a3 = createPedigreeSvg(data, '@I1@', {...opts, fonts, paper:'A3'});
+  const a2 = createPedigreeSvg(data, '@I1@', {...opts, fonts, paper:'A2'});
+  assert.match(a4, /width="297mm" height="210mm"/);
+  assert.match(a3, /width="420mm" height="297mm"/);
+  assert.match(a2, /width="594mm" height="420mm"/);
+  assert.equal((a4.match(/data:font\/ttf;base64,/g) || []).length, 2);
+  assert.match(a4, /SIL OPEN FONT LICENSE/);
+  assert.doesNotMatch(a4, /textLength=|lengthAdjust=|<image|url\(['\"]?https?:/i);
+  assert.ok(chartPrintNameSize(a3, 'A3') > chartPrintNameSize(a4, 'A4'));
+  assert.ok(chartPrintNameSize(a2, 'A2') > chartPrintNameSize(a3, 'A3'));
+  assert.ok(new Resvg(a4).render().width > 0);
+});
+
+test('long Hebrew and mixed-script names and places wrap without distortion or dropped words', () => {
+  const name = 'רחל אנדריאה מרגריטה חנה אלישבע לאה אריאל';
+  const birth = 'תל אביב יפו מחוז המרכז ישראל ארץ יפה במיוחד';
+  const death = 'New York City United States of America';
+  const data = parseGedcom(wrap(`0 @A@ INDI\n1 NAME ${name}\n1 BIRT\n2 PLAC ${birth}\n1 DEAT\n2 PLAC ${death}`));
+  const without = createPedigreeSvg(data, '@A@', opts);
+  const withPlaces = createPedigreeSvg(data, '@A@', {...opts, showPlaces:true});
+  assert.doesNotMatch(without, /New York|תל אביב/);
+  assert.doesNotMatch(withPlaces, /textLength=|lengthAdjust=/);
+  const person = withPlaces.match(/<g class="person" data-person-id="@A@">([\s\S]*?)<\/g>/)[1];
+  const texts = [...person.matchAll(/<text class="(name|place)"[^>]*>([^<]*)<\/text>/g)];
+  const names = texts.filter(x => x[1] === 'name').map(x => x[2]).join(' ');
+  const places = texts.filter(x => x[1] === 'place').map(x => x[2]).join(' ');
+  assert.equal(names, name);
+  assert.equal(places, `Birth: ${birth} Death: ${death}`);
+  assert.ok(texts.filter(x => x[1] === 'name').length > 1);
+  const height = svg => Number(svg.match(/<rect class="box focus"[^>]*height="([\d.]+)"/)[1]);
+  assert.ok(height(withPlaces) > height(without));
+  assert.ok(new Resvg(withPlaces).render().width > 0);
+  const mixed = 'תָּמָר Beethoven עברית ארוכה מאד';
+  assert.equal(wrapChartText(mixed, 90).join(' '), mixed);
+});
+
+test('compact rings accommodate multiline places without overlaps', () => {
+  const children = Array.from({length:8}, (_,i)=>`1 CHIL @K${i}@`).join('\n');
+  const people = Array.from({length:8}, (_,i)=>`0 @K${i}@ INDI\n1 NAME Child${i} /Surname/\n1 BIRT\n2 PLAC Very Long Birth Location District ${i} Example`).join('\n');
+  const data = parseGedcom(wrap(`0 @F@ INDI\n1 NAME Focus\n0 @P@ INDI\n1 NAME Parent\n0 @G@ INDI\n1 NAME Grandparent\n0 @U@ INDI\n1 NAME Aunt\n${people}\n0 @PF@ FAM\n1 HUSB @P@\n1 CHIL @F@\n0 @GF@ FAM\n1 HUSB @G@\n1 CHIL @P@\n1 CHIL @U@\n0 @UF@ FAM\n1 WIFE @U@\n${children}`));
+  const svg = createPedigreeSvg(data, '@F@', {...opts, includeBranches:true, showPlaces:true});
+  const rects = [...svg.matchAll(/class="box compact-box" x="([\d.]+)" y="([\d.]+)" width="126" height="([\d.]+)"/g)].map(m => ({x:Number(m[1]),y:Number(m[2]),h:Number(m[3])}));
+  assert.equal(rects.length, 8);
+  assert.ok(rects.every(r => r.h > 44));
+  for (let i=0; i<rects.length; i++) for (let j=0; j<i; j++) {
+    assert.ok(Math.abs(rects[i].x-rects[j].x) >= 126 || rects[i].y+rects[i].h <= rects[j].y || rects[j].y+rects[j].h <= rects[i].y);
+  }
 });

@@ -8,8 +8,10 @@
 .chart-print-output{display:none}
 @media print{
   body.chart-printing > *{display:none!important}
-  body.chart-printing > .chart-print-output{display:block!important;position:absolute;top:0;left:0;width:277mm;height:190mm;margin:0;padding:0;overflow:hidden}
-  body.chart-printing .chart-print-output svg{display:block;width:100%;height:100%}
+  body.chart-printing > .chart-print-output{display:block!important;position:absolute;top:0;left:0;width:var(--chart-page-width);height:var(--chart-page-height);margin:0;padding:0;overflow:hidden}
+  body.chart-printing .chart-print-output svg{display:block;width:100%;height:100%;print-color-adjust:exact;-webkit-print-color-adjust:exact}
 }
 
 .chart-branch-option{display:flex;align-items:center;gap:8px;font-size:13px;color:#344332;margin:10px 0}.chart-branch-option input{width:17px;height:17px}.chart-zoom{margin-top:12px}
+
+.chart-print-warning{font-size:12px;color:#80512b;background:#fff6e8;border:1px solid #edd9b9;border-radius:8px;padding:9px 12px;line-height:1.6;margin:10px 0}
