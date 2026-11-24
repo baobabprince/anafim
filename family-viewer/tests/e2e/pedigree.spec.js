@@ -23,6 +23,10 @@ test('preview, switch generations, download and print the selected family chart'
   const ids = await dialog.locator('.chart-preview .person').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-person-id')));
   expect(new Set(ids).size).toBe(ids.length);
   await dialog.getByLabel('דורות צאצאים בכל ענף צדדי (ילדים = 1)').selectOption('2');
+  await dialog.getByLabel('הצגת מקומות לידה ופטירה, כשמתועדים').check();
+  await expect(dialog.locator('.chart-preview')).toContainText('תל אביב');
+  await dialog.getByLabel('גודל נייר / PDF לרוחב').selectOption('A3');
+  await expect(dialog.locator('.chart-preview svg')).toHaveAttribute('width', '420mm');
   await dialog.getByLabel('הגדלת התצוגה').selectOption('200');
   await expect(dialog.locator('.chart-preview')).toHaveCSS('--chart-zoom', '200%');
   const downloadPromise = page.waitForEvent('download');
@@ -31,7 +35,11 @@ test('preview, switch generations, download and print the selected family chart'
   expect(download.suggestedFilename()).toBe('anafim-pedigree.svg');
   const svg = await fs.readFile(await download.path(), 'utf8');
   expect(svg).toContain('שלמה לוין');
-  await page.evaluate(() => { window.print = () => { window.chartPrintVisible = document.body.classList.contains('chart-printing') && !!document.querySelector('.chart-print-output svg'); window.dispatchEvent(new Event('afterprint')); }; });
+  expect(svg).toContain('width="420mm"');
+  expect(svg).toContain('data:font/ttf;base64,');
+  expect(svg).not.toContain('lengthAdjust=');
+  expect(svg).toContain('תל אביב');
+  await page.evaluate(() => { window.print = () => { window.chartPrintVisible = document.body.classList.contains('chart-printing') && !!document.querySelector('.chart-print-output svg') && [...document.head.querySelectorAll('style')].some(style => style.textContent.includes('size: A3 landscape'));  window.dispatchEvent(new Event('afterprint')); }; });
   await dialog.getByRole('button', {name: 'הדפסה / PDF'}).click();
   expect(await page.evaluate(() => window.chartPrintVisible)).toBe(true);
   await expect(page.locator('body')).not.toHaveClass(/chart-printing/);

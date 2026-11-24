@@ -8,6 +8,60 @@ const clean = value => [...String(value ?? '')].map(char => {
 }).join('');
 const direction = value => /[\u0590-\u08ff]/.test(String(value).match(/[A-Za-z\u0590-\u08ff]/)?.[0] || '') ? 'rtl' : 'ltr';
 
+export const CHART_PAPERS = Object.freeze({
+  A4: Object.freeze({ width: 297, height: 210 }),
+  A3: Object.freeze({ width: 420, height: 297 }),
+  A2: Object.freeze({ width: 594, height: 420 }),
+});
+
+/** Approximate name size on the printable page, in points (10 mm margins). */
+export function chartPrintNameSize(svg, paper = 'A4') {
+  const page = CHART_PAPERS[paper] || CHART_PAPERS.A4;
+  const viewBox = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+  if (!viewBox) return null;
+  const w = Number(viewBox[1]), h = Number(viewBox[2]);
+  if (!w || !h) return null;
+  return 13 * Math.min((page.width - 20) / w, (page.height - 20) / h) * 72 / 25.4;
+}
+
+const graphemeSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+
+// Wrap without stretching glyphs or discarding text. Break on words when
+// possible, then on grapheme clusters for an unusually long single word.
+export function wrapChartText(value, maxWidth, fontSize = 13) {
+  const text = clean(value).replace(/\s+/g, ' ').trim();
+  if (!text) return [];
+  const graphemes = graphemeSegmenter
+    ? [...graphemeSegmenter.segment(text)].map(part => part.segment)
+    : Array.from(text);
+  const width = char => {
+    if (/\s/u.test(char)) return fontSize * 0.35;
+    if (/[MW@%]/u.test(char)) return fontSize * 0.95;
+    if (/[\u0590-\u08ff]/u.test(char)) return fontSize * 0.75;
+    if (/[^\u0000-\u08ff]/u.test(char)) return fontSize;
+    return fontSize * 0.7;
+  };
+  const lines = [];
+  let line = [], used = 0, lastSpace = -1;
+  const emit = items => { const str = items.join('').trim(); if (str) lines.push(str); };
+  for (const char of graphemes) {
+    const w = width(char);
+    while (line.length && used + w > maxWidth) {
+      if (lastSpace > 0) {
+        emit(line.slice(0, lastSpace));
+        line = line.slice(lastSpace + 1);
+        used = line.reduce((sum, item) => sum + width(item), 0);
+      } else { emit(line); line = []; used = 0; }
+      lastSpace = line.lastIndexOf(' ');
+    }
+    if (char === ' ' && !line.length) continue;
+    line.push(char); used += w;
+    if (char === ' ') lastSpace = line.length - 1;
+  }
+  emit(line);
+  return lines;
+}
+
 /** Select people and documented family edges before layout. IDs, not names, are identities. */
 export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1 } = {}) {
   if (!data?.people?.[focusId]) throw new Error('Focus person not found');
@@ -103,9 +157,10 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
   return { people, families, generations, branchDescendants, corePeople };
 }
 
-export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, compactBranches = true, lang = 'he', date = new Date() } = {}) {
+export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, compactBranches = true, showPlaces = false, paper = 'A4', fonts = {}, lang = 'he', date = new Date() } = {}) {
   const model = buildPedigreeGraph(data, focusId, { generations, parentFamily, includeBranches, branchGenerations });
   const en = lang === 'en';
+  const page = CHART_PAPERS[paper] || CHART_PAPERS.A4;
   const pick = (he, english) => en ? english : he;
   const graph = new dagre.graphlib.Graph().setGraph({ rankdir: 'TB', nodesep: 35, ranksep: 50, edgesep: 15, marginx: 28, marginy: 20 }).setDefaultEdgeLabel(() => ({}));
   const personKey = id => `p:${id}`;
@@ -113,6 +168,28 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
   const clusterKey = (id, index) => JSON.stringify(['cluster', id, index]);
   const boxWidth = 150, boxHeight = 54;
   const compactWidth = 126, compactHeight = 44;
+  const contentFor = (person, compact) => {
+    const bw = compact ? compactWidth : boxWidth;
+    const name = wrapChartText(person.name || '—', bw - 16, 13).map(text => ({ text, cls: 'name', height: 15 }));
+    const birth = getYear(person.birth?.date), death = getYear(person.death?.date);
+    const years = birth || death ? [{ text: `${birth || '?'} – ${death || ''}`, cls: 'years', height: 13 }] : [];
+    const places = [];
+    if (showPlaces) for (const [place, heading] of [
+      [person.birth?.place, pick('לידה', 'Birth')],
+      [person.death?.place, pick('פטירה', 'Death')],
+    ]) {
+      if (!place?.trim()) continue;
+      for (const text of wrapChartText(`${heading}: ${place}`, bw - 16, 10)) places.push({ text, cls: 'place', height: 12 });
+    }
+    const lines = [...name, ...years, ...places];
+    const height = Math.max(compact ? compactHeight : boxHeight, 12 + lines.reduce((sum, line) => sum + line.height, 0));
+    return { lines, height };
+  };
+  const normalContent = new Map(), compactContent = new Map();
+  for (const [id, person] of model.people) {
+    normalContent.set(id, contentFor(person, false));
+    compactContent.set(id, contentFor(person, true));
+  }
   const childCounts = new Map(), partnerIds = new Set();
   for (const family of model.families.values()) {
     for (const id of family.children) childCounts.set(id, (childCounts.get(id) || 0) + 1);
@@ -136,27 +213,28 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
       const size = Math.floor(children.length / count) + (group < children.length % count ? 1 : 0);
       const members = children.slice(start, start + size);
       start += size;
+      const maxHeight = Math.max(...members.map(id => compactContent.get(id).height));
       let rx = 100, ry = 85, positions;
       for (let attempt = 0; attempt < 100; attempt++) {
         positions = members.map((id, i) => {
           const angle = -Math.PI / 2 + (i + 0.5) * 2 * Math.PI / members.length;
           return { id, x: rx * Math.cos(angle), y: ry * Math.sin(angle) };
         });
-        let overlap = false;
+        let overlap = positions.some(pos => Math.abs(pos.x) < compactWidth / 2 + 5 && Math.abs(pos.y) < maxHeight / 2 + 5);
         for (let i = 0; i < positions.length; i++) for (let j = 0; j < i; j++) {
-          if (Math.abs(positions[i].x - positions[j].x) < compactWidth + 10 && Math.abs(positions[i].y - positions[j].y) < compactHeight + 10) overlap = true;
+          if (Math.abs(positions[i].x - positions[j].x) < compactWidth + 10 && Math.abs(positions[i].y - positions[j].y) < maxHeight + 10) overlap = true;
         }
         if (!overlap) break;
         rx *= 1.12; ry *= 1.12;
       }
       const key = clusterKey(fid, group);
-      clusters.set(key, { fid, positions, rx, ry, width: 2 * rx + compactWidth + 30, height: 2 * ry + compactHeight + 30 });
+      clusters.set(key, { fid, positions, rx, ry, maxHeight, width: 2 * rx + compactWidth + 30, height: 2 * ry + maxHeight + 30 });
       if (!familyClusters.has(fid)) familyClusters.set(fid, []);
       familyClusters.get(fid).push(key);
       members.forEach(id => clusteredPeople.add(id));
     }
   }
-  for (const [id] of model.people) if (!clusteredPeople.has(id)) graph.setNode(personKey(id), { width: boxWidth, height: boxHeight });
+  for (const [id] of model.people) if (!clusteredPeople.has(id)) graph.setNode(personKey(id), { width: boxWidth, height: normalContent.get(id).height });
   for (const [id, family] of model.families) {
     graph.setNode(familyKey(id), { width: 16, height: 16 });
     for (const personId of family.partners) graph.setEdge(personKey(personId), familyKey(id), { kind: 'partner', familyId: id, personId });
@@ -169,9 +247,14 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
   }
   dagre.layout(graph);
   const width = Math.max(800, graph.graph().width + 40);
-  const height = Math.max(450, graph.graph().height + 150);
+  const title = pick(`אילן משפחתי של ${data.people[focusId].name}`, `Family chart of ${data.people[focusId].name}`);
+  const subtitle = pick(`${model.generations} דורות אחורה · ענפים`, `${model.generations} generations of ancestors · Anafim`);
+  const legend = pick('נקודה מסמנת משפחה · חץ מצביע על ילד/ה · מסגרת בקו מקווקו מאגדת ילדים של אותה משפחה · חציית קווים אינה קשר', 'Dot: family · arrow: child · dashed ring: children of one family · crossing lines are not connected');
+  const titleLines = wrapChartText(title, width - 70, 20);
+  const legendLines = wrapChartText(legend, width - 70, 12);
   const offsetX = (width - graph.graph().width) / 2;
-  const offsetY = 85;
+  const offsetY = Math.max(85, 65 + titleLines.length * 24);
+  const height = Math.max(450, graph.graph().height + offsetY + 55 + legendLines.length * 15);
   const label = (x, y, content, cls = 'label', extra = '') => `<text class="${cls}" x="${x}" y="${y}" direction="${cls === 'years' ? 'ltr' : direction(content)}"${extra}>${escapeXml(clean(content))}</text>`;
   const edges = graph.edges().map(edge => {
     const info = graph.edge(edge);
@@ -189,13 +272,17 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
     return `<g data-family-id="${escapeXml(clean(info.familyId))}"${identity} data-relation="${info.kind}"><polyline class="line${nonBirth ? ' nonbirth' : ''}" points="${points}"${info.kind === 'child' ? ' marker-end="url(#child-arrow)"' : ''}/>${annotation}</g>`;
   }).join('');
   const personBox = (id, x, y, compact = false) => {
-    const person = model.people.get(id);
-    const bw = compact ? compactWidth : boxWidth, bh = compact ? compactHeight : boxHeight;
-    const name = clean(person.name || '—');
-    const birth = getYear(person.birth?.date), death = getYear(person.death?.date);
-    const years = birth || death ? `${birth || '?'} – ${death || ''}` : '';
-    const fit = [...name].length > (compact ? 16 : 19) ? ` textLength="${bw - 14}" lengthAdjust="spacingAndGlyphs"` : '';
-    return `<g class="person" data-person-id="${escapeXml(clean(id))}"${compact ? ' data-compact="true"' : ''}><rect class="box${id === focusId ? ' focus' : ''}${compact ? ' compact-box' : ''}" x="${x-bw/2}" y="${y-bh/2}" width="${bw}" height="${bh}" rx="6"/>${label(x, y - 4, name, 'name', fit)}${label(x, y + 14, years, 'years')}</g>`;
+    const bw = compact ? compactWidth : boxWidth;
+    const content = (compact ? compactContent : normalContent).get(id);
+    const fullName = model.people.get(id).name || '—';
+    const bh = content.height;
+    const total = content.lines.reduce((sum, line) => sum + line.height, 0);
+    let baseline = y - total / 2;
+    const text = content.lines.map(line => {
+      baseline += line.height;
+      return label(x, baseline - 3, line.text, line.cls);
+    }).join('');
+    return `<g class="person" data-person-id="${escapeXml(clean(id))}"${compact ? ' data-compact="true"' : ''}><rect class="box${id === focusId ? ' focus' : ''}${compact ? ' compact-box' : ''}" x="${x-bw/2}" y="${y-bh/2}" width="${bw}" height="${bh}" rx="6"/><title>${escapeXml(clean(fullName))}</title>${text}</g>`;
   };
   const boxes = [...model.people].filter(([id]) => !clusteredPeople.has(id)).map(([id]) => {
     const node = graph.node(personKey(id));
@@ -207,21 +294,24 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
     const cx = node.x + offsetX, cy = node.y + offsetY;
     const entrance = graph.edge(familyKey(fid), key).points.at(-1);
     const lines = cluster.positions.map(pos => {
-      const ratio = Math.min(pos.x ? compactWidth / 2 / Math.abs(pos.x) : Infinity, pos.y ? compactHeight / 2 / Math.abs(pos.y) : Infinity);
+      const childHeight = compactContent.get(pos.id).height;
+      const ratio = Math.min(pos.x ? compactWidth / 2 / Math.abs(pos.x) : Infinity, pos.y ? childHeight / 2 / Math.abs(pos.y) : Infinity);
       const x = cx + pos.x * (1 - ratio), y = cy + pos.y * (1 - ratio);
       return `<g data-family-id="${escapeXml(clean(fid))}" data-person-id="${escapeXml(clean(pos.id))}" data-relation="child"><line class="line" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" marker-end="url(#child-arrow)"/></g>`;
     }).join('');
     const children = cluster.positions.map(pos => personBox(pos.id, cx + pos.x, cy + pos.y, true)).join('');
-    return `<g class="branch-ring" data-family-id="${escapeXml(clean(fid))}"><ellipse class="ring-outline" cx="${cx}" cy="${cy}" rx="${cluster.rx + compactWidth/2 + 8}" ry="${cluster.ry + compactHeight/2 + 8}"/><line class="line" x1="${entrance.x + offsetX}" y1="${entrance.y + offsetY}" x2="${cx}" y2="${cy}"/>${lines}${children}</g>`;
+    return `<g class="branch-ring" data-family-id="${escapeXml(clean(fid))}"><ellipse class="ring-outline" cx="${cx}" cy="${cy}" rx="${cluster.rx + compactWidth/2 + 8}" ry="${cluster.ry + cluster.maxHeight/2 + 8}"/><line class="line" x1="${entrance.x + offsetX}" y1="${entrance.y + offsetY}" x2="${cx}" y2="${cy}"/>${lines}${children}</g>`;
   }).join('');
   const familyNodes = [...model.families].map(([id]) => {
     const node = graph.node(familyKey(id));
     return `<circle class="family-node" data-family-id="${escapeXml(clean(id))}" cx="${node.x + offsetX}" cy="${node.y + offsetY}" r="5"/>`;
   }).join('');
-  const title = pick(`אילן משפחתי של ${data.people[focusId].name}`, `Family chart of ${data.people[focusId].name}`);
-  const subtitle = pick(`${model.generations} דורות אחורה · ענפים`, `${model.generations} generations of ancestors · Anafim`);
-  const legend = pick('נקודה מסמנת משפחה · חץ מצביע על ילד/ה · מסגרת בקו מקווקו מאגדת ילדים של אותה משפחה · חציית קווים אינה קשר', 'Dot: family · arrow: child · dashed ring: children of one family · crossing lines are not connected');
   const dateLabel = new Intl.DateTimeFormat(en ? 'en-GB' : 'he-IL').format(date);
   const footer = pick(`ענפים · נוצר במכשיר · ${dateLabel}`, `Anafim · created on this device · ${dateLabel}`);
-  return `<svg xmlns="http://www.w3.org/2000/svg" class="pedigree-svg" width="297mm" height="210mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(clean(title))}"><defs><marker id="child-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#7a8a6a"/></marker></defs><style>.pedigree-svg .box{fill:#faf8f4;stroke:#5c6b4a;stroke-width:1.5}.pedigree-svg .focus{fill:#e8f0e0;stroke:#3d4f2f;stroke-width:2.2}.pedigree-svg .name,.pedigree-svg .years,.pedigree-svg .title,.pedigree-svg .subtitle,.pedigree-svg .type{font-family:Arial,sans-serif;text-anchor:middle;fill:#1a1a1a}.pedigree-svg .name{font-size:13px;font-weight:600;unicode-bidi:plaintext}.pedigree-svg .years{font-size:11px;fill:#555;direction:ltr}.pedigree-svg .type{font-size:10px;fill:#6e7a5c;paint-order:stroke;stroke:#fffef9;stroke-width:3px}.pedigree-svg .title{font-size:20px;font-weight:bold;unicode-bidi:plaintext}.pedigree-svg .subtitle{font-size:12px;fill:#666}.pedigree-svg .line{stroke:#7a8a6a;stroke-width:1.5;fill:none}.pedigree-svg .nonbirth{stroke-dasharray:5 3}.pedigree-svg .ring-outline{fill:#f5f8f0;stroke:#b3c1ac;stroke-width:1;stroke-dasharray:5 4}.pedigree-svg .compact-box{fill:#fffef9}.pedigree-svg .family-node{fill:#7a8a6a;stroke:#fffef9;stroke-width:1.5}</style><rect width="100%" height="100%" fill="#fffef9"/>${label(width/2, 30, title, 'title')}${label(width/2, 50, subtitle, 'subtitle')}${edges}${rings}${boxes}${familyNodes}${label(width/2, height-36, legend, 'subtitle')}${label(width/2, height-16, footer, 'subtitle')}</svg>`;
+  // Font data is supplied by the app build and must never be an external URL.
+  const validFont = value => typeof value === 'string' && /^data:font\/ttf;base64,[A-Za-z0-9+/=]+$/.test(value);
+  const embedded = validFont(fonts.regular) && validFont(fonts.bold);
+  const fontCss = embedded ? `@font-face{font-family:AnafimChart;src:url('${fonts.regular}') format('truetype');font-weight:400}@font-face{font-family:AnafimChart;src:url('${fonts.bold}') format('truetype');font-weight:600}` : '';
+  const fontMetadata = embedded && fonts.license ? `<metadata>${escapeXml(clean(fonts.license))}</metadata>` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="pedigree-svg" width="${page.width}mm" height="${page.height}mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(clean(title))}"><defs><marker id="child-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#7a8a6a"/></marker></defs><style>${fontCss}.pedigree-svg .box{fill:#faf8f4;stroke:#5c6b4a;stroke-width:1.5}.pedigree-svg .focus{fill:#e8f0e0;stroke:#3d4f2f;stroke-width:2.2}.pedigree-svg .name,.pedigree-svg .years,.pedigree-svg .place,.pedigree-svg .title,.pedigree-svg .subtitle,.pedigree-svg .type{font-family:AnafimChart,Arial,sans-serif;text-anchor:middle;fill:#1a1a1a}.pedigree-svg .name{font-size:13px;font-weight:600;unicode-bidi:plaintext}.pedigree-svg .years{font-size:11px;fill:#555;direction:ltr}.pedigree-svg .place{font-size:10px;fill:#555;unicode-bidi:plaintext}.pedigree-svg .type{font-size:10px;fill:#6e7a5c;paint-order:stroke;stroke:#fffef9;stroke-width:3px}.pedigree-svg .title{font-size:20px;font-weight:600;unicode-bidi:plaintext}.pedigree-svg .subtitle{font-size:12px;fill:#666}.pedigree-svg .line{stroke:#7a8a6a;stroke-width:1.5;fill:none}.pedigree-svg .nonbirth{stroke-dasharray:5 3}.pedigree-svg .ring-outline{fill:#f5f8f0;stroke:#b3c1ac;stroke-width:1;stroke-dasharray:5 4}.pedigree-svg .compact-box{fill:#fffef9}.pedigree-svg .family-node{fill:#7a8a6a;stroke:#fffef9;stroke-width:1.5}</style>${fontMetadata}<rect width="100%" height="100%" fill="#fffef9"/>${titleLines.map((line, i) => label(width/2, 30 + i*24, line, 'title')).join('')}${label(width/2, 50 + (titleLines.length-1)*24, subtitle, 'subtitle')}${edges}${rings}${boxes}${familyNodes}${legendLines.map((line, i) => label(width/2, height-26-(legendLines.length-1-i)*15, line, 'subtitle')).join('')}${label(width/2, height-10, footer, 'subtitle')}</svg>`;
 }
