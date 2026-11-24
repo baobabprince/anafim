@@ -11,6 +11,15 @@ test('preview, switch generations, download and print the selected family chart'
   await expect(dialog.locator('.chart-preview')).not.toContainText('שלמה לוין');
   await dialog.getByLabel('דורות של אבות ואימהות').selectOption('4');
   await expect(dialog.locator('.chart-preview')).toContainText('שלמה לוין');
+  await dialog.getByLabel('דורות של אבות ואימהות').selectOption('6');
+  await dialog.getByLabel(/הצגת ענפים צדדיים/).check();
+  await expect(dialog.locator('.chart-preview')).toContainText('איתן לוין');
+  await expect(dialog.locator('.chart-preview .person[data-person-id="@I1@"]')).toHaveCount(1);
+  const ids = await dialog.locator('.chart-preview .person').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-person-id')));
+  expect(new Set(ids).size).toBe(ids.length);
+  await dialog.getByLabel('דורות צאצאים בכל ענף צדדי (ילדים = 1)').selectOption('2');
+  await dialog.getByLabel('הגדלת התצוגה').selectOption('200');
+  await expect(dialog.locator('.chart-preview')).toHaveCSS('--chart-zoom', '200%');
   const downloadPromise = page.waitForEvent('download');
   await dialog.getByRole('button', {name: 'הורדת SVG'}).click();
   const download = await downloadPromise;
