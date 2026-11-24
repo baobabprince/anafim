@@ -8,7 +8,7 @@ import {
   ImagePlus, Trash2, Route,
 } from 'lucide-react';
 import { EditPersonAiModal } from './EditPersonAiModal.jsx';
-import { findRelationshipPath, formatDate, formatDateCentral, getRelations, getYear, initials, lifeLabel, normalize, pedigreeLabel } from './gedcom.js';
+import { findRelationshipPath, relationshipPathLabelKey, formatDate, formatDateCentral, getRelations, getYear, initials, lifeLabel, normalize, pedigreeLabel } from './gedcom.js';
 import { ATTRIBUTE_NAMES, branchPeople, eventTitle, personInformation, personRecord } from './person-info.js';
 import { t, getLang } from './i18n/index.js';
 import { usePersonPhoto, usePersonPhotos } from './PersonPhotoContext.jsx';
@@ -235,7 +235,7 @@ function RelationshipPathDialog({ data, currentPerson, onClose, onSelect }) {
             {path.map((step, index) => {
               const personInPath = data.people[step.id];
               const previousPerson = index > 0 ? data.people[path[index - 1].id] : null;
-              const relationLabel = step.relationship === 'parent' ? 'fx.pathChildOf' : step.relationship === 'child' ? 'fx.pathParentOf' : 'fx.pathPartnerOf';
+              const relationLabel = previousPerson ? relationshipPathLabelKey(step.relationship, previousPerson.sex) : '';
               return <li key={step.id}>
                 {previousPerson && <div className="fx-path-connection"><span aria-hidden="true"/><small>{t(relationLabel, { name: personInPath.name })}</small></div>}
                 <button type="button" className="fx-path-person" onClick={() => { onClose(); onSelect(step.id); }}>

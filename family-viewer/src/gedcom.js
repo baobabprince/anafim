@@ -250,6 +250,17 @@ export function getRelations(data, id, parentFamilyId) {
   return { parents: parentIds.filter(pid => data.people[pid]).map(pid => data.people[pid]), siblings: siblings.sort(byBirth), partners: [...partnerMap.values()], children: [...childMap.values()].sort(byBirth), parentFamilies, activeParentFamily: pf?.id };
 }
 
+/**
+ * Translation key describing how the earlier person in a path step relates to the next one.
+ * `relationship` is the step value from findRelationshipPath (how the next person relates to the
+ * earlier one); `sex` is the earlier person's GEDCOM SEX. Unknown sex falls back to neutral terms.
+ */
+export function relationshipPathLabelKey(relationship, sex) {
+  const role = relationship === 'child' ? 'Parent' : relationship === 'parent' ? 'Child' : 'Partner';
+  const gender = sex === 'M' ? 'Male' : sex === 'F' ? 'Female' : '';
+  return `fx.path${role}${gender}Of`;
+}
+
 export function findRelationshipPath(data, startId, endId) {
   if (!data?.people?.[startId] || !data.people[endId]) return null;
   if (startId === endId) return [{ id: startId, relationship: null }];

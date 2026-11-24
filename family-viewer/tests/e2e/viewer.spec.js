@@ -48,7 +48,7 @@ test('family connection path can be found and opened from the result', async ({p
   await expect(dialog.locator('.fx-path-result li')).toHaveCount(2);
   await expect(dialog.locator('.fx-path-summary')).toContainText('1');
   await expect(dialog.locator('.fx-path-summary')).toContainText('צעד');
-  await expect(dialog.locator('.fx-path-result')).toContainText('הורה של נועה כהן');
+  await expect(dialog.locator('.fx-path-result')).toContainText('אמא של נועה כהן');
   await dialog.locator('.fx-path-person').last().click();
   await expect(dialog).not.toBeVisible();
   await expect(page.locator('.focus-card h2')).toHaveText('נועה כהן');
