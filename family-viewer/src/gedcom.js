@@ -79,7 +79,7 @@ function* parseGedcomSteps(raw) {
       order.push(p.id);
     } else if (n.tag === 'FAM' && n.xref) {
       if (families[n.xref]) { warn(`מזהה משפחה כפול: ${n.xref}. נשמר הרישום הראשון.`); return; }
-      families[n.xref] = { id: n.xref, partners: unique([...children(n, 'HUSB'), ...children(n, 'WIFE'), ...children(n, '_PART')].map(c => c.value)), children: unique(children(n, 'CHIL').map(c => c.value)), marriage: child(n, 'MARR') ? eventFromNode(child(n, 'MARR')) : null, divorce: child(n, 'DIV') ? eventFromNode(child(n, 'DIV')) : null, events:n.children.filter(c=>['ENGA','EVEN','RESI','CENS'].includes(c.tag)).map(eventFromNode), sources:citationsFromNode(n), notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text) };
+      families[n.xref] = { id: n.xref, partners: unique([...children(n, 'HUSB'), ...children(n, 'WIFE'), ...children(n, '_PART')].map(c => c.value)), children: unique(children(n, 'CHIL').map(c => c.value)), marriage: child(n, 'MARR') ? eventFromNode(child(n, 'MARR')) : null, divorce: child(n, 'DIV') ? eventFromNode(child(n, 'DIV')) : null, relationshipStatus: text(child(n, '_STAT')) || text(child(n, '_MSTAT')), events:n.children.filter(c=>['ENGA','EVEN','RESI','CENS'].includes(c.tag)).map(eventFromNode), sources:citationsFromNode(n), notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text) };
     } else if (n.tag === 'OBJE' && n.xref) mediaObjects[n.xref] = children(n, 'FILE').map(text);
     else if (['NOTE','SNOTE'].includes(n.tag) && n.xref) notes[n.xref] = text(n);
     else if (n.tag === 'SOUR' && n.xref) sources[n.xref] = { id: n.xref, title: text(child(n, 'TITL')) || n.value, author: text(child(n, 'AUTH')), publication: text(child(n, 'PUBL')) };

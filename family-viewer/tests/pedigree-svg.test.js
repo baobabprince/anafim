@@ -555,3 +555,113 @@ test('large descendant families split into non-overlapping rings', () => {
     assert.equal((svg.match(new RegExp(`data-family-id="@F@" data-person-id="@K${i}@" data-relation="child"`, 'g')) || []).length, 1);
   }
 });
+
+test('documented union endings style only the matching partner edges in both chart modes', () => {
+  const data = parseGedcom(wrap(`0 @A@ INDI
+1 NAME Focus
+0 @B@ INDI
+1 NAME Former Partner
+1 DEAT Y
+0 @C@ INDI
+1 NAME Widowed Partner
+0 @D@ INDI
+1 NAME Partner With Death Only
+1 DEAT Y
+0 @AD@ INDI
+1 NAME Adopted Child
+1 FAMC @FD@
+2 PEDI adopted
+0 @K0@ INDI
+1 NAME Child One
+0 @K1@ INDI
+1 NAME Child Two
+0 @K2@ INDI
+1 NAME Child Three
+0 @FD@ FAM
+1 HUSB @A@
+1 WIFE @B@
+1 CHIL @AD@
+1 DIV Y
+0 @FW@ FAM
+1 HUSB @A@
+1 WIFE @C@
+1 CHIL @K0@
+1 CHIL @K1@
+1 CHIL @K2@
+1 _STAT WIDOWED
+0 @FU@ FAM
+1 HUSB @A@
+1 WIFE @D@
+1 MARR
+2 DATE 1 JAN 1960`));
+  assert.equal(data.families['@FW@'].relationshipStatus, 'WIDOWED');
+  assert.ok(data.families['@FD@'].divorce);
+  for (const mode of ['ancestors','descendants']) {
+    const options = {...opts, mode, generations:3, compactDescendants:true};
+    const svg = createPedigreeSvg(data, '@A@', options);
+    for (const fid of ['@FD@', '@FW@']) for (const person of fid === '@FD@' ? ['@A@','@B@'] : ['@A@','@C@']) {
+      assert.match(svg, new RegExp(`data-family-id="${fid}" data-person-id="${person}" data-relation="partner"><polyline class="line union-ended"`));
+    }
+    for (const id of ['@A@','@D@']) assert.match(svg, new RegExp(`data-family-id="@FU@" data-person-id="${id}" data-relation="partner"><polyline class="line"`));
+    assert.match(svg, /data-family-id="@FD@" data-person-id="@AD@" data-relation="child"><polyline class="line nonbirth"/);
+    assert.doesNotMatch(svg, /class="line nonbirth union-ended"/);
+    assert.match(svg, />divorce<\/text>/);
+    assert.match(svg, />widowhood<\/text>/);
+    assert.match(svg, /Dashed partner line: recorded divorce or widowhood/);
+    const model = buildPedigreeGraph(data, '@A@', options);
+    for (const id of model.people.keys()) assert.equal((svg.match(new RegExp(`class="person" data-person-id="${id}"`, 'g')) || []).length, 1);
+    if (mode === 'descendants') {
+      assert.match(svg, /class="branch-ring" data-family-id="@FW@"/);
+      for (const id of ['@K0@','@K1@','@K2@']) assert.match(svg, new RegExp(`data-family-id="@FW@" data-person-id="${id}" data-relation="child"><line class="line"`));
+    }
+    assert.ok(new Resvg(svg).render().width > 0);
+  }
+  const he = createPedigreeSvg(data, '@A@', {mode:'descendants', lang:'he'});
+  assert.match(he, />גירושין<\/text>/);
+  assert.match(he, />התאלמנות<\/text>/);
+  assert.match(he, /קו זוגיות מקווקו/);
+});
+
+test('widowhood must be explicitly recorded on the family; deaths and personal status do not suffice', () => {
+  const data = parseGedcom(wrap(`0 @A@ INDI
+1 NAME First
+1 EVEN
+2 TYPE Widowed
+0 @B@ INDI
+1 NAME Deceased
+1 DEAT Y
+0 @F@ FAM
+1 HUSB @A@
+1 WIFE @B@
+1 MARR
+2 DATE 1900`));
+  let svg = createPedigreeSvg(data, '@A@', {...opts, mode:'descendants'});
+  assert.doesNotMatch(svg, /class="line union-ended"|>widowhood<\/text>|Dashed partner line/);
+  data.families['@F@'].events.push({type:'EVEN', label:'Widowhood', detail:''});
+  svg = createPedigreeSvg(data, '@A@', {...opts, mode:'descendants'});
+  assert.match(svg, />widowhood<\/text>/);
+  assert.equal((svg.match(/class="line union-ended"/g) || []).length, 2);
+  data.families['@F@'].events = [{type:'EVEN', label:'Widowhood', detail:'N'}];
+  svg = createPedigreeSvg(data, '@A@', {...opts, mode:'descendants'});
+  assert.doesNotMatch(svg, /class="line union-ended"/);
+});
+
+test('explicit divorce and widowhood are not conflated or inferred from divorce filing', () => {
+  const data = parseGedcom(wrap(`0 @A@ INDI
+1 NAME Focus
+0 @B@ INDI
+1 NAME Partner
+0 @F@ FAM
+1 HUSB @A@
+1 WIFE @B@
+1 DIV N
+1 DIVF Y`));
+  let svg = createPedigreeSvg(data, '@A@', {...opts, mode:'descendants'});
+  assert.doesNotMatch(svg, /class="line union-ended"|>divorce<\/text>/);
+  data.families['@F@'].events = [{type:'EVEN', label:'Widowed', detail:''}];
+  data.families['@F@'].divorce = {type:'DIV', detail:''};
+  svg = createPedigreeSvg(data, '@A@', {...opts, mode:'descendants'});
+  assert.match(svg, />divorce \/ widowhood<\/text>/);
+  assert.equal((svg.match(/class="line union-ended"/g) || []).length, 2);
+  assert.ok(new Resvg(svg).render().width > 0);
+});

@@ -91,3 +91,57 @@ test('preview, switch generations, download and print the selected family chart'
   await page.keyboard.press('Escape');
   await expect(dialog).not.toBeVisible();
 });
+
+test('recorded divorce and widowhood are distinct in preview, download and print', async ({page}, testInfo) => {
+  const fixture = `0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @A@ INDI
+1 NAME מיקוד /בדיקה/
+0 @B@ INDI
+1 NAME בן /ראשון/
+0 @C@ INDI
+1 NAME בן /שני/
+0 @D@ INDI
+1 NAME בן /שלישי/
+1 DEAT Y
+0 @FD@ FAM
+1 HUSB @A@
+1 WIFE @B@
+1 DIV Y
+0 @FW@ FAM
+1 HUSB @A@
+1 WIFE @C@
+1 EVEN
+2 TYPE Widowhood
+0 @FN@ FAM
+1 HUSB @A@
+1 WIFE @D@
+0 TRLR`;
+  await page.goto('/');
+  if (!(await page.getByRole('dialog').isVisible())) await (testInfo.project.name === 'mobile' ? page.locator('.mobile-upload') : page.locator('.sidebar-upload')).click();
+  await page.getByLabel('בחירת קובץ GEDCOM', {exact:true}).setInputFiles({name:'status.ged', mimeType:'text/plain', buffer:Buffer.from(fixture)});
+  await page.getByRole('button', {name:'פתיחת האילן שלי', exact:true}).click();
+  await expect(page.locator('.focus-card h2')).toContainText('מיקוד בדיקה');
+  await page.getByRole('button', {name:'תרשים להדפסה'}).click();
+  const dialog = page.getByRole('dialog', {name:'ייצוא תרשים משפחתי'});
+  const preview = dialog.locator('.chart-preview');
+  await expect(preview.locator('[data-family-id="@FD@"][data-relation="partner"] .union-ended')).toHaveCount(2);
+  await expect(preview.locator('[data-family-id="@FW@"][data-relation="partner"] .union-ended')).toHaveCount(2);
+  await expect(preview.locator('[data-family-id="@FN@"][data-relation="partner"] .union-ended')).toHaveCount(0);
+  await expect(preview.locator('.union-status')).toHaveCount(2);
+  await expect(preview).toContainText('גירושין');
+  await expect(preview).toContainText('התאלמנות');
+  await dialog.getByLabel('סוג התרשים').selectOption('descendants');
+  await expect(preview.locator('.union-status')).toHaveCount(2);
+  const downloadPromise = page.waitForEvent('download');
+  await dialog.getByRole('button', {name:'הורדת SVG'}).click();
+  const svg = await fs.readFile(await (await downloadPromise).path(), 'utf8');
+  expect(svg).toContain('union-ended');
+  expect(svg).toContain('גירושין');
+  expect(svg).toContain('התאלמנות');
+  await page.evaluate(() => { window.print = () => { window.endedUnionPrintCount = document.querySelectorAll('.chart-print-output .union-status').length; window.dispatchEvent(new Event('afterprint')); }; });
+  await dialog.getByRole('button', {name:'הדפסה / PDF'}).click();
+  await expect.poll(() => page.evaluate(() => window.endedUnionPrintCount)).toBe(2);
+});

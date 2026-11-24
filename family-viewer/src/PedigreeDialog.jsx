@@ -56,7 +56,7 @@ export default function PedigreeDialog({ Dialog, data, person, parentFamily, onC
       </>}
       <label className="chart-branch-option"><input type="checkbox" checked={showPlaces} onChange={e => setShowPlaces(e.target.checked)}/>{t('chart.showPlaces')}</label>
       <div className="chart-options"><label htmlFor="chart-paper">{t('chart.paper')}</label><select id="chart-paper" value={paper} onChange={e => setPaper(e.target.value)}><option value="A4">A4</option><option value="A3">A3</option><option value="A2">A2</option></select></div>
-      <p className="chart-note">{t(mode === 'descendants' ? 'chart.descendantExplanation' : 'chart.explanation')} {t('chart.sexLegend')}</p>
+      <p className="chart-note">{t(mode === 'descendants' ? 'chart.descendantExplanation' : 'chart.explanation')} {t('chart.sexLegend')} {t('chart.unionLegend')}</p>
       <div className="chart-options chart-zoom"><label htmlFor="chart-zoom">{t('chart.zoom')}</label><select id="chart-zoom" value={zoom} onChange={e => setZoom(Number(e.target.value))}><option value="100">100%</option><option value="200">200%</option><option value="400">400%</option></select></div>
       <div className="chart-preview" role="img" aria-label={t('chart.preview')} style={{'--chart-zoom': `${zoom}%`}} dangerouslySetInnerHTML={{ __html: svg }}/>
       {chartPrintNameSize(svg, paper) * (showPlaces ? 10 / 13 : 1) < 7 && <p className="chart-print-warning" role="status">{t('chart.smallPrint')}</p>}

@@ -1,5 +1,6 @@
 /** English UI strings for Anafim */
 export default {
+  'chart.unionLegend': 'A dashed partner line marks a divorce or widowhood recorded for that family; the event is labeled by the family dot. A death alone does not establish widowhood.',
   'chart.sexLegend': 'Recorded sex: square corners for male, rounded corners for female, and a dashed box for other or not recorded.',
   'chart.mode': 'Chart type',
   'chart.ancestors': 'Ancestors',
