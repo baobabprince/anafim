@@ -2,6 +2,7 @@ import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useSt
 import { Network, UsersRound, Upload, Search, ChevronDown, ChevronLeft, ChevronRight, ArrowUpLeft, FileText, ShieldCheck, X, Menu, MapPin, CalendarDays, BriefcaseBusiness, Heart, GitFork, HelpCircle, Printer, Download, Share2, Mail, Check, AlertTriangle, LoaderCircle, Home, Layers3, Leaf, Sprout, LockKeyhole, Info, RotateCcw, Baby, Flower2, CornerDownLeft, MousePointer2, ArrowRight, ArrowLeft, Clock3, Wrench, ImagePlus, Cloud } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import FamilyView from './FamilyExperience.jsx';
+import PedigreeDialog from './PedigreeDialog.jsx';
 import CloudAccess from './CloudAccess.jsx';
 import { DEMO_TEXT, DEMO_ROOT } from './demo.js';
 import { DEMO_PHOTOS } from './demo-photos.js';
@@ -1555,6 +1556,7 @@ export default function App() {
               bundle={bundle}
               onSelect={selectPerson}
               parentFamily={parentFamily}
+              onOpenChart={() => setModal('chart')}
               setParentFamily={setParentFamily}
               history={history}
               onHistory={goHistory}
@@ -1585,6 +1587,7 @@ export default function App() {
         <button className="mobile-upload" onClick={() => setModal('upload')}><span><Upload size={20}/></span><span>{t('nav.upload')}</span></button>
         <button className={view === 'file' ? 'selected' : ''} onClick={() => changeView('file')}><FileText size={21}/><span>{t('nav.file')}</span></button>
       </nav>
+      {modal === 'chart' && <PedigreeDialog Dialog={Dialog} data={bundle.data} person={person} parentFamily={parentFamily} onClose={() => setModal(null)}/>}
       {modal === 'upload' && <UploadDialog onClose={() => setModal(null)} onImport={loadBundle} onDemo={() => loadBundle(demoBundle())}/>}
       {modal === 'tools' && <ToolsDialog onClose={() => setModal(null)} bundle={bundle} onToast={setToast} />}
       {modal === 'help' && <HelpDialog onClose={() => setModal(null)} onUpload={() => setModal('upload')} onDownload={downloadGedcom} installPrompt={installPrompt} onInstall={handleInstallClick}/>}

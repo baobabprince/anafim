@@ -1,5 +1,16 @@
 /** English UI strings for Anafim */
 export default {
+  'chart.title': 'Export family chart',
+  'chart.subtitle': 'A chart of the selected person for landscape A4 printing.',
+  'chart.generations': 'Generations of ancestors',
+  'chart.three': '3 generations',
+  'chart.four': '4 generations',
+  'chart.explanation': 'Includes ancestors, siblings in the selected parent family, and partners and children grouped by family. The selected person is repeated for each family. The selected parent family is used; other branches use the birth family or the first family. Missing relationships are not invented.',
+  'chart.preview': 'Chart preview',
+  'chart.printHint': 'The chart is generated on your device. Print on landscape A4 or save as PDF. Large families may appear small; the SVG can be enlarged.',
+  'chart.download': 'Download SVG',
+  'chart.print': 'Print / PDF',
+  'chart.open': 'Printable chart',
   'brand.name': 'Anafim',
   'brand.tagline': 'The story that connects us',
   'brand.homeAria': 'Anafim — back to family view',
