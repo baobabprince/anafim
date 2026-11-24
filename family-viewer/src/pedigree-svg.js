@@ -109,7 +109,9 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
       for (const child of new Set(data.families[fid].children)) if (people.has(child)) addChild(entry, child);
       if (entry.partners.size < 2 && !entry.children.size) families.delete(fid);
     }
-    return { people, families, generations, mode, branchDescendants, corePeople };
+    let lastDescendantDepth = 0;
+    for (const level of depth.values()) lastDescendantDepth = Math.max(lastDescendantDepth, level);
+    return { people, families, generations, mode, branchDescendants, corePeople, descendantDepth: depth, lastDescendantDepth };
   }
 
   // Include each individual's documented unions, and at most the requested
@@ -188,7 +190,7 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
   return { people, families, generations, mode, branchDescendants, corePeople };
 }
 
-export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, compactBranches = true, showPlaces = false, paper = 'A4', fonts = {}, lang = 'he', mode = 'ancestors' } = {}) {
+export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, compactBranches = true, compactDescendants = false, showPlaces = false, paper = 'A4', fonts = {}, lang = 'he', mode = 'ancestors' } = {}) {
   const model = buildPedigreeGraph(data, focusId, { generations, parentFamily, includeBranches, branchGenerations, mode });
   const en = lang === 'en';
   const page = CHART_PAPERS[paper] || CHART_PAPERS.A4;
@@ -226,14 +228,19 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
     for (const id of family.children) childCounts.set(id, (childCounts.get(id) || 0) + 1);
     for (const id of family.partners) partnerIds.add(id);
   }
-  // Only terminal side-branch descendants with a single displayed parent
-  // family can share a ring. Cross-links, ancestors and people with partners
-  // remain ordinary nodes; no person or relationship is hidden or duplicated.
+  // Group only terminal people with a single displayed parent family. Extra
+  // links, partners and non-birth relationships retain their ordinary nodes.
+  // In descendant mode use the deepest generation actually present, even
+  // when the selected limit extends beyond the recorded descendants.
   const clusters = new Map(), familyClusters = new Map(), clusteredPeople = new Set();
-  if (model.mode === 'ancestors' && compactBranches && includeBranches) for (const [fid, family] of model.families) {
+  const useRings = model.mode === 'ancestors' ? compactBranches && includeBranches : compactDescendants;
+  if (useRings) for (const [fid, family] of model.families) {
     const children = [...family.children].filter(id => {
       const type = model.people.get(id)?.parentFamilies?.find(p => p.id === fid)?.type?.toLowerCase();
-      return model.branchDescendants.has(id) && !model.corePeople.has(id) && childCounts.get(id) === 1 && !partnerIds.has(id) && (!type || type === 'birth');
+      const eligibleGeneration = model.mode === 'ancestors'
+        ? model.branchDescendants.has(id) && !model.corePeople.has(id)
+        : model.lastDescendantDepth > 0 && model.descendantDepth.get(id) === model.lastDescendantDepth;
+      return eligibleGeneration && childCounts.get(id) === 1 && !partnerIds.has(id) && (!type || type === 'birth');
     });
     if (children.length < 3) continue;
     // Split very large families into balanced rings to bound layout work and
