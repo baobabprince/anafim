@@ -59,6 +59,7 @@ export default function PedigreeDialog({ Dialog, data, person, parentFamily, onC
       <p className="chart-note">{t(mode === 'descendants' ? 'chart.descendantExplanation' : 'chart.explanation')} {t('chart.sexLegend')} {t('chart.unionLegend')}</p>
       <div className="chart-options chart-zoom"><label htmlFor="chart-zoom">{t('chart.zoom')}</label><select id="chart-zoom" value={zoom} onChange={e => setZoom(Number(e.target.value))}><option value="100">100%</option><option value="200">200%</option><option value="400">400%</option></select></div>
       <div className="chart-preview" role="img" aria-label={t('chart.preview')} style={{'--chart-zoom': `${zoom}%`}} dangerouslySetInnerHTML={{ __html: svg }}/>
+      {mode === 'descendants' && svg.includes('data-layout="graph"') && <p className="chart-print-warning" role="status">{t('chart.complexLayout')}</p>}
       {chartPrintNameSize(svg, paper) * (showPlaces ? 10 / 13 : 1) < 7 && <p className="chart-print-warning" role="status">{t('chart.smallPrint')}</p>}
       <p className="chart-note">{t('chart.printHint')}</p>
       <div className="chart-actions"><button type="button" className="button button-primary" onClick={download}><Download size={16}/>{t('chart.download')}</button><button type="button" className="button button-white" onClick={print}><Printer size={16}/>{t('chart.print')}</button></div>
