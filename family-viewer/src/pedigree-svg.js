@@ -15,6 +15,8 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
   branchGenerations = Number.isInteger(branchGenerations) && branchGenerations >= 1 && branchGenerations <= 3 ? branchGenerations : 1;
   const people = new Map();
   const families = new Map();
+  const branchDescendants = new Set();
+  const corePeople = new Set([focusId]);
   const addPerson = id => { if (data.people[id]) people.set(id, data.people[id]); };
   const familyEntry = id => {
     if (!data.families[id]) return null;
@@ -28,7 +30,7 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
   // Include each individual's documented unions, and at most the requested
   // generations of descendants. Multiple unions remain separate family nodes.
   const expanded = new Map();
-  const expandDescendants = (id, remaining, path = new Set()) => {
+  const expandDescendants = (id, remaining, path = new Set(), isBranch = false) => {
     if (remaining <= 0 || path.has(id) || (expanded.get(id) || 0) >= remaining) return;
     expanded.set(id, remaining);
     const person = data.people[id];
@@ -41,17 +43,20 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
       for (const partner of new Set(family.partners)) addPartner(entry, partner);
       for (const child of new Set(family.children)) {
         addChild(entry, child);
-        if (remaining > 1) expandDescendants(child, remaining - 1, nextPath);
+        if (isBranch && data.people[child]) branchDescendants.add(child);
+        if (remaining > 1) expandDescendants(child, remaining - 1, nextPath, isBranch);
       }
     }
   };
   expandDescendants(focusId, 1);
+  for (const id of people.keys()) corePeople.add(id);
 
   const visitAncestor = (id, level, path) => {
     if (path.has(id)) return;
     const person = data.people[id];
     if (!person) return;
     addPerson(id);
+    corePeople.add(id);
     const r = getRelations(data, id, level === 0 ? parentFamily : undefined);
     const family = data.families[r.activeParentFamily];
     // At the cutoff, include siblings only if side branches were requested;
@@ -63,13 +68,31 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
     if (showSiblings) for (const sibling of new Set(family.children)) {
       if (sibling === id || !data.people[sibling]) continue;
       addChild(entry, sibling);
-      if (includeBranches) expandDescendants(sibling, branchGenerations);
+      corePeople.add(sibling);
+      if (includeBranches) expandDescendants(sibling, branchGenerations, new Set(), true);
     }
     if (level < generations - 1) {
       const nextPath = new Set([...path, id]);
       for (const parent of new Set(family.partners)) {
         if (!data.people[parent]) continue;
         addPartner(entry, parent);
+        corePeople.add(parent);
+        // Additional families of a selected parent can contain half siblings.
+        // Show only families with documented children, never infer a second parent.
+        if (showSiblings) for (const otherId of new Set(data.people[parent].spouseFamilies || [])) {
+          if (otherId === r.activeParentFamily) continue;
+          const other = data.families[otherId];
+          if (!other || !other.partners.includes(parent)) continue;
+          const otherChildren = [...new Set(other.children)].filter(child => child !== id && !family.partners.includes(child) && data.people[child]);
+          if (!otherChildren.length) continue;
+          const otherEntry = familyEntry(otherId);
+          for (const partner of new Set(other.partners)) { addPartner(otherEntry, partner); if (data.people[partner]) corePeople.add(partner); }
+          for (const sibling of otherChildren) {
+            addChild(otherEntry, sibling);
+            corePeople.add(sibling);
+            if (includeBranches) expandDescendants(sibling, branchGenerations, new Set(), true);
+          }
+        }
         visitAncestor(parent, level + 1, nextPath);
       }
     }
@@ -77,22 +100,72 @@ export function buildPedigreeGraph(data, focusId, { generations = 3, parentFamil
   visitAncestor(focusId, 0, new Set());
   // A single child with no visible parents conveys no relationship.
   for (const [id, family] of families) if (!family.partners.size && family.children.size < 2) families.delete(id);
-  return { people, families, generations };
+  return { people, families, generations, branchDescendants, corePeople };
 }
 
-export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, lang = 'he', date = new Date() } = {}) {
+export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily, includeBranches = false, branchGenerations = 1, compactBranches = true, lang = 'he', date = new Date() } = {}) {
   const model = buildPedigreeGraph(data, focusId, { generations, parentFamily, includeBranches, branchGenerations });
   const en = lang === 'en';
   const pick = (he, english) => en ? english : he;
   const graph = new dagre.graphlib.Graph().setGraph({ rankdir: 'TB', nodesep: 35, ranksep: 50, edgesep: 15, marginx: 28, marginy: 20 }).setDefaultEdgeLabel(() => ({}));
   const personKey = id => `p:${id}`;
   const familyKey = id => `f:${id}`;
+  const clusterKey = (id, index) => JSON.stringify(['cluster', id, index]);
   const boxWidth = 150, boxHeight = 54;
-  for (const [id] of model.people) graph.setNode(personKey(id), { width: boxWidth, height: boxHeight });
+  const compactWidth = 126, compactHeight = 44;
+  const childCounts = new Map(), partnerIds = new Set();
+  for (const family of model.families.values()) {
+    for (const id of family.children) childCounts.set(id, (childCounts.get(id) || 0) + 1);
+    for (const id of family.partners) partnerIds.add(id);
+  }
+  // Only terminal side-branch descendants with a single displayed parent
+  // family can share a ring. Cross-links, ancestors and people with partners
+  // remain ordinary nodes; no person or relationship is hidden or duplicated.
+  const clusters = new Map(), familyClusters = new Map(), clusteredPeople = new Set();
+  if (compactBranches && includeBranches) for (const [fid, family] of model.families) {
+    const children = [...family.children].filter(id => {
+      const type = model.people.get(id)?.parentFamilies?.find(p => p.id === fid)?.type?.toLowerCase();
+      return model.branchDescendants.has(id) && !model.corePeople.has(id) && childCounts.get(id) === 1 && !partnerIds.has(id) && (!type || type === 'birth');
+    });
+    if (children.length < 3) continue;
+    // Split very large families into balanced rings to bound layout work and
+    // keep all names visible. Each ring remains linked to the same family.
+    const count = Math.ceil(children.length / 12);
+    let start = 0;
+    for (let group = 0; group < count; group++) {
+      const size = Math.floor(children.length / count) + (group < children.length % count ? 1 : 0);
+      const members = children.slice(start, start + size);
+      start += size;
+      let rx = 100, ry = 85, positions;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        positions = members.map((id, i) => {
+          const angle = -Math.PI / 2 + (i + 0.5) * 2 * Math.PI / members.length;
+          return { id, x: rx * Math.cos(angle), y: ry * Math.sin(angle) };
+        });
+        let overlap = false;
+        for (let i = 0; i < positions.length; i++) for (let j = 0; j < i; j++) {
+          if (Math.abs(positions[i].x - positions[j].x) < compactWidth + 10 && Math.abs(positions[i].y - positions[j].y) < compactHeight + 10) overlap = true;
+        }
+        if (!overlap) break;
+        rx *= 1.12; ry *= 1.12;
+      }
+      const key = clusterKey(fid, group);
+      clusters.set(key, { fid, positions, rx, ry, width: 2 * rx + compactWidth + 30, height: 2 * ry + compactHeight + 30 });
+      if (!familyClusters.has(fid)) familyClusters.set(fid, []);
+      familyClusters.get(fid).push(key);
+      members.forEach(id => clusteredPeople.add(id));
+    }
+  }
+  for (const [id] of model.people) if (!clusteredPeople.has(id)) graph.setNode(personKey(id), { width: boxWidth, height: boxHeight });
   for (const [id, family] of model.families) {
     graph.setNode(familyKey(id), { width: 16, height: 16 });
     for (const personId of family.partners) graph.setEdge(personKey(personId), familyKey(id), { kind: 'partner', familyId: id, personId });
-    for (const personId of family.children) graph.setEdge(familyKey(id), personKey(personId), { kind: 'child', familyId: id, personId });
+    for (const personId of family.children) if (!clusteredPeople.has(personId)) graph.setEdge(familyKey(id), personKey(personId), { kind: 'child', familyId: id, personId });
+    for (const key of familyClusters.get(id) || []) {
+      const cluster = clusters.get(key);
+      graph.setNode(key, { width: cluster.width, height: cluster.height });
+      graph.setEdge(familyKey(id), key, { kind: 'cluster', familyId: id });
+    }
   }
   dagre.layout(graph);
   const width = Math.max(800, graph.graph().width + 40);
@@ -104,7 +177,7 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
     const info = graph.edge(edge);
     const routed = info.points.map(p => ({ ...p }));
     const junction = graph.node(familyKey(info.familyId));
-    if (info.kind === 'child') routed[0] = { x: junction.x, y: junction.y };
+    if (info.kind === 'child' || info.kind === 'cluster') routed[0] = { x: junction.x, y: junction.y };
     else routed[routed.length - 1] = { x: junction.x, y: junction.y };
     const points = routed.map(p => `${(p.x + offsetX).toFixed(1)},${(p.y + offsetY).toFixed(1)}`).join(' ');
     const type = info.kind === 'child' ? model.people.get(info.personId)?.parentFamilies?.find(p => p.id === info.familyId)?.type?.toLowerCase() : '';
@@ -112,16 +185,34 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
     const typeName = { adopted: pick('אימוץ', 'adopted'), foster: pick('אומנה', 'foster'), sealing: pick('שיוך', 'sealing') }[type] || type;
     const middle = info.points[Math.floor(info.points.length / 2)];
     const annotation = nonBirth ? label(middle.x + offsetX + 8, middle.y + offsetY - 5, typeName, 'type') : '';
-    return `<g data-family-id="${escapeXml(clean(info.familyId))}" data-person-id="${escapeXml(clean(info.personId))}" data-relation="${info.kind}"><polyline class="line${nonBirth ? ' nonbirth' : ''}" points="${points}"${info.kind === 'child' ? ' marker-end="url(#child-arrow)"' : ''}/>${annotation}</g>`;
+    const identity = info.kind === 'cluster' ? '' : ` data-person-id="${escapeXml(clean(info.personId))}"`;
+    return `<g data-family-id="${escapeXml(clean(info.familyId))}"${identity} data-relation="${info.kind}"><polyline class="line${nonBirth ? ' nonbirth' : ''}" points="${points}"${info.kind === 'child' ? ' marker-end="url(#child-arrow)"' : ''}/>${annotation}</g>`;
   }).join('');
-  const boxes = [...model.people].map(([id, person]) => {
-    const node = graph.node(personKey(id));
-    const x = node.x + offsetX, y = node.y + offsetY;
+  const personBox = (id, x, y, compact = false) => {
+    const person = model.people.get(id);
+    const bw = compact ? compactWidth : boxWidth, bh = compact ? compactHeight : boxHeight;
     const name = clean(person.name || '—');
     const birth = getYear(person.birth?.date), death = getYear(person.death?.date);
     const years = birth || death ? `${birth || '?'} – ${death || ''}` : '';
-    const fit = [...name].length > 19 ? ` textLength="${boxWidth - 14}" lengthAdjust="spacingAndGlyphs"` : '';
-    return `<g class="person" data-person-id="${escapeXml(clean(id))}"><rect class="box${id === focusId ? ' focus' : ''}" x="${x-boxWidth/2}" y="${y-boxHeight/2}" width="${boxWidth}" height="${boxHeight}" rx="6"/>${label(x, y - 4, name, 'name', fit)}${label(x, y + 15, years, 'years')}</g>`;
+    const fit = [...name].length > (compact ? 16 : 19) ? ` textLength="${bw - 14}" lengthAdjust="spacingAndGlyphs"` : '';
+    return `<g class="person" data-person-id="${escapeXml(clean(id))}"${compact ? ' data-compact="true"' : ''}><rect class="box${id === focusId ? ' focus' : ''}${compact ? ' compact-box' : ''}" x="${x-bw/2}" y="${y-bh/2}" width="${bw}" height="${bh}" rx="6"/>${label(x, y - 4, name, 'name', fit)}${label(x, y + 14, years, 'years')}</g>`;
+  };
+  const boxes = [...model.people].filter(([id]) => !clusteredPeople.has(id)).map(([id]) => {
+    const node = graph.node(personKey(id));
+    return personBox(id, node.x + offsetX, node.y + offsetY);
+  }).join('');
+  const rings = [...clusters].map(([key, cluster]) => {
+    const fid = cluster.fid;
+    const node = graph.node(key);
+    const cx = node.x + offsetX, cy = node.y + offsetY;
+    const entrance = graph.edge(familyKey(fid), key).points.at(-1);
+    const lines = cluster.positions.map(pos => {
+      const ratio = Math.min(pos.x ? compactWidth / 2 / Math.abs(pos.x) : Infinity, pos.y ? compactHeight / 2 / Math.abs(pos.y) : Infinity);
+      const x = cx + pos.x * (1 - ratio), y = cy + pos.y * (1 - ratio);
+      return `<g data-family-id="${escapeXml(clean(fid))}" data-person-id="${escapeXml(clean(pos.id))}" data-relation="child"><line class="line" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" marker-end="url(#child-arrow)"/></g>`;
+    }).join('');
+    const children = cluster.positions.map(pos => personBox(pos.id, cx + pos.x, cy + pos.y, true)).join('');
+    return `<g class="branch-ring" data-family-id="${escapeXml(clean(fid))}"><ellipse class="ring-outline" cx="${cx}" cy="${cy}" rx="${cluster.rx + compactWidth/2 + 8}" ry="${cluster.ry + compactHeight/2 + 8}"/><line class="line" x1="${entrance.x + offsetX}" y1="${entrance.y + offsetY}" x2="${cx}" y2="${cy}"/>${lines}${children}</g>`;
   }).join('');
   const familyNodes = [...model.families].map(([id]) => {
     const node = graph.node(familyKey(id));
@@ -129,8 +220,8 @@ export function createPedigreeSvg(data, focusId, { generations = 3, parentFamily
   }).join('');
   const title = pick(`אילן משפחתי של ${data.people[focusId].name}`, `Family chart of ${data.people[focusId].name}`);
   const subtitle = pick(`${model.generations} דורות אחורה · ענפים`, `${model.generations} generations of ancestors · Anafim`);
-  const legend = pick('עיגול מסמן משפחה · חץ מצביע על ילד/ה · מפגש קווים ללא עיגול אינו קשר', 'Circle: family · arrow: child · lines crossing without a circle are not connected');
+  const legend = pick('נקודה מסמנת משפחה · חץ מצביע על ילד/ה · מסגרת בקו מקווקו מאגדת ילדים של אותה משפחה · חציית קווים אינה קשר', 'Dot: family · arrow: child · dashed ring: children of one family · crossing lines are not connected');
   const dateLabel = new Intl.DateTimeFormat(en ? 'en-GB' : 'he-IL').format(date);
   const footer = pick(`ענפים · נוצר במכשיר · ${dateLabel}`, `Anafim · created on this device · ${dateLabel}`);
-  return `<svg xmlns="http://www.w3.org/2000/svg" class="pedigree-svg" width="297mm" height="210mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(clean(title))}"><defs><marker id="child-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#7a8a6a"/></marker></defs><style>.pedigree-svg .box{fill:#faf8f4;stroke:#5c6b4a;stroke-width:1.5}.pedigree-svg .focus{fill:#e8f0e0;stroke:#3d4f2f;stroke-width:2.2}.pedigree-svg .name,.pedigree-svg .years,.pedigree-svg .title,.pedigree-svg .subtitle,.pedigree-svg .type{font-family:Arial,sans-serif;text-anchor:middle;fill:#1a1a1a}.pedigree-svg .name{font-size:13px;font-weight:600;unicode-bidi:plaintext}.pedigree-svg .years{font-size:11px;fill:#555;direction:ltr}.pedigree-svg .type{font-size:10px;fill:#6e7a5c;paint-order:stroke;stroke:#fffef9;stroke-width:3px}.pedigree-svg .title{font-size:20px;font-weight:bold;unicode-bidi:plaintext}.pedigree-svg .subtitle{font-size:12px;fill:#666}.pedigree-svg .line{stroke:#7a8a6a;stroke-width:1.5;fill:none}.pedigree-svg .nonbirth{stroke-dasharray:5 3}.pedigree-svg .family-node{fill:#7a8a6a;stroke:#fffef9;stroke-width:1.5}</style><rect width="100%" height="100%" fill="#fffef9"/>${label(width/2, 30, title, 'title')}${label(width/2, 50, subtitle, 'subtitle')}${edges}${boxes}${familyNodes}${label(width/2, height-36, legend, 'subtitle')}${label(width/2, height-16, footer, 'subtitle')}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="pedigree-svg" width="297mm" height="210mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(clean(title))}"><defs><marker id="child-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#7a8a6a"/></marker></defs><style>.pedigree-svg .box{fill:#faf8f4;stroke:#5c6b4a;stroke-width:1.5}.pedigree-svg .focus{fill:#e8f0e0;stroke:#3d4f2f;stroke-width:2.2}.pedigree-svg .name,.pedigree-svg .years,.pedigree-svg .title,.pedigree-svg .subtitle,.pedigree-svg .type{font-family:Arial,sans-serif;text-anchor:middle;fill:#1a1a1a}.pedigree-svg .name{font-size:13px;font-weight:600;unicode-bidi:plaintext}.pedigree-svg .years{font-size:11px;fill:#555;direction:ltr}.pedigree-svg .type{font-size:10px;fill:#6e7a5c;paint-order:stroke;stroke:#fffef9;stroke-width:3px}.pedigree-svg .title{font-size:20px;font-weight:bold;unicode-bidi:plaintext}.pedigree-svg .subtitle{font-size:12px;fill:#666}.pedigree-svg .line{stroke:#7a8a6a;stroke-width:1.5;fill:none}.pedigree-svg .nonbirth{stroke-dasharray:5 3}.pedigree-svg .ring-outline{fill:#f5f8f0;stroke:#b3c1ac;stroke-width:1;stroke-dasharray:5 4}.pedigree-svg .compact-box{fill:#fffef9}.pedigree-svg .family-node{fill:#7a8a6a;stroke:#fffef9;stroke-width:1.5}</style><rect width="100%" height="100%" fill="#fffef9"/>${label(width/2, 30, title, 'title')}${label(width/2, 50, subtitle, 'subtitle')}${edges}${rings}${boxes}${familyNodes}${label(width/2, height-36, legend, 'subtitle')}${label(width/2, height-16, footer, 'subtitle')}</svg>`;
 }

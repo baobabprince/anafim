@@ -14,6 +14,11 @@ test('preview, switch generations, download and print the selected family chart'
   await dialog.getByLabel('דורות של אבות ואימהות').selectOption('6');
   await dialog.getByLabel(/הצגת ענפים צדדיים/).check();
   await expect(dialog.locator('.chart-preview')).toContainText('איתן לוין');
+  const compact = dialog.getByLabel('הצגה מעגלית קומפקטית לצאצאי ענפים צדדיים');
+  await expect(compact).toBeChecked();
+  await compact.uncheck();
+  await expect(compact).not.toBeChecked();
+  await compact.check();
   await expect(dialog.locator('.chart-preview .person[data-person-id="@I1@"]')).toHaveCount(1);
   const ids = await dialog.locator('.chart-preview .person').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-person-id')));
   expect(new Set(ids).size).toBe(ids.length);

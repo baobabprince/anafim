@@ -11,8 +11,9 @@ export default function PedigreeDialog({ Dialog, data, person, parentFamily, onC
   const [date] = useState(() => new Date());
   const [includeBranches, setIncludeBranches] = useState(false);
   const [branchGenerations, setBranchGenerations] = useState(1);
+  const [compactBranches, setCompactBranches] = useState(true);
   const [zoom, setZoom] = useState(100);
-  const svg = useMemo(() => createPedigreeSvg(data, person.id, { generations, parentFamily, includeBranches, branchGenerations, lang, date }), [data, person.id, generations, parentFamily, includeBranches, branchGenerations, lang, date]);
+  const svg = useMemo(() => createPedigreeSvg(data, person.id, { generations, parentFamily, includeBranches, branchGenerations, compactBranches, lang, date }), [data, person.id, generations, parentFamily, includeBranches, branchGenerations, compactBranches, lang, date]);
   const download = () => {
     const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
     const a = document.createElement('a');
@@ -37,6 +38,7 @@ export default function PedigreeDialog({ Dialog, data, person, parentFamily, onC
       <div className="chart-options"><label htmlFor="chart-generations">{t('chart.generations')}</label><select id="chart-generations" value={generations} onChange={e => setGenerations(Number(e.target.value))}><option value="3">{t('chart.three')}</option><option value="4">{t('chart.four')}</option><option value="5">{t('chart.five')}</option><option value="6">{t('chart.six')}</option></select></div>
       <label className="chart-branch-option"><input type="checkbox" checked={includeBranches} onChange={e => setIncludeBranches(e.target.checked)}/>{t('chart.branches')}</label>
       {includeBranches && <div className="chart-options"><label htmlFor="branch-generations">{t('chart.branchDepth')}</label><select id="branch-generations" value={branchGenerations} onChange={e => setBranchGenerations(Number(e.target.value))}><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>}
+      {includeBranches && <label className="chart-branch-option"><input type="checkbox" checked={compactBranches} onChange={e => setCompactBranches(e.target.checked)}/>{t('chart.compactBranches')}</label>}
       <p className="chart-note">{t('chart.explanation')}</p>
       <div className="chart-options chart-zoom"><label htmlFor="chart-zoom">{t('chart.zoom')}</label><select id="chart-zoom" value={zoom} onChange={e => setZoom(Number(e.target.value))}><option value="100">100%</option><option value="200">200%</option><option value="400">400%</option></select></div>
       <div className="chart-preview" role="img" aria-label={t('chart.preview')} style={{'--chart-zoom': `${zoom}%`}} dangerouslySetInnerHTML={{ __html: svg }}/>
