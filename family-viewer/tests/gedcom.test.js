@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseGedcom, getRelations, findRelationshipPath, decodeGedcom, formatDate, normalize, getYear } from '../src/gedcom.js';
+import { parseGedcom, getRelations, findRelationshipPath, relationshipPathLabelKey, decodeGedcom, formatDate, normalize, getYear } from '../src/gedcom.js';
 import { DEMO_TEXT } from '../src/demo.js';
 const wrap = body => `0 HEAD\n1 GEDC\n2 VERS 7.0\n1 CHAR UTF-8\n${body}\n0 TRLR`;
 
@@ -48,6 +48,18 @@ test('relationship paths find the shortest family connection and its direction',
   assert.deepEqual(findRelationshipPath(d, '@A@', '@A@'), [{ id: '@A@', relationship: null }]);
   assert.equal(findRelationshipPath(d, '@A@', '@D@'), null);
   assert.equal(findRelationshipPath(d, '@A@', '@MISSING@'), null);
+});
+
+test('relationship path labels use gendered kinship terms with neutral fallbacks', () => {
+  assert.equal(relationshipPathLabelKey('child', 'M'), 'fx.pathParentMaleOf');
+  assert.equal(relationshipPathLabelKey('child', 'F'), 'fx.pathParentFemaleOf');
+  assert.equal(relationshipPathLabelKey('child', 'U'), 'fx.pathParentOf');
+  assert.equal(relationshipPathLabelKey('parent', 'M'), 'fx.pathChildMaleOf');
+  assert.equal(relationshipPathLabelKey('parent', 'F'), 'fx.pathChildFemaleOf');
+  assert.equal(relationshipPathLabelKey('parent', ''), 'fx.pathChildOf');
+  assert.equal(relationshipPathLabelKey('partner', 'M'), 'fx.pathPartnerMaleOf');
+  assert.equal(relationshipPathLabelKey('partner', 'F'), 'fx.pathPartnerFemaleOf');
+  assert.equal(relationshipPathLabelKey('partner', undefined), 'fx.pathPartnerOf');
 });
 
 test('multiline notes, source citations and individual birth names are retained', () => {
