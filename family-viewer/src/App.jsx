@@ -15,6 +15,7 @@ import LangToggle from './i18n/LangToggle.jsx';
 import { PersonPhotoContext, usePersonPhoto } from './PersonPhotoContext.jsx';
 import { addPersonPhotos, deleteBundlePhotos, deletePersonPhoto, getPersonPhotos, resolveGedcomPhotos, savePersonPhotos, validatePhotoFile } from './photo-storage.js';
 import { listSavedFiles, getActiveSavedFile, saveStoredFile, deleteStoredFile, setActiveStoredFileId, hasSavedFilesSync } from './file-storage.js';
+import { hasRememberedVaultSync } from './vault-device-key.js';
 import { getMonthlyMilestones, analyzeTreeHealth } from './tree-insights.js';
 import { acquireBodyScrollLock, forceUnlockBodyScroll, syncBodyScrollLock, restoreFocusSafely } from './scroll-lock.js';
 
@@ -1108,7 +1109,7 @@ export default function App() {
   const [savedFiles,setSavedFiles] = useState([]);
   const [photoRevision,setPhotoRevision] = useState(0);
   const [history,setHistory] = useState(() => ({ ids:[DEMO_ROOT], cursor:0 }));
-  const [view,setView] = useState('family'), [query,setQuery] = useState(''), [modal,setModal] = useState(() => hasSavedFilesSync() ? null : 'upload'), [mobileMenu,setMobileMenu] = useState(false), [parentFamily,setParentFamily] = useState(''), [toast,setToast] = useState(''), [installPrompt,setInstallPrompt] = useState(null);
+  const [view,setView] = useState('family'), [query,setQuery] = useState(''), [modal,setModal] = useState(() => (hasSavedFilesSync() || hasRememberedVaultSync()) ? null : 'upload'), [mobileMenu,setMobileMenu] = useState(false), [parentFamily,setParentFamily] = useState(''), [toast,setToast] = useState(''), [installPrompt,setInstallPrompt] = useState(null);
   const [undoStack, setUndoStack] = useState([]);
   const [aiSupported, setAiSupported] = useState(false);
   const [devMode, setDevMode] = useState(false);

@@ -97,6 +97,9 @@ test('production CSP, referrer policy, and template interpolation guards stay in
   assert.ok(cloudAccess.includes("phase === 'loading'"), 'CloudAccess should render an explicit loading state');
   assert.ok(cloudAccess.includes('autoCapitalize="none"'), 'PasswordField should disable mobile auto-capitalization');
   assert.ok(!cloudAccess.includes('window.confirm('), 'CloudAccess should use inline confirmations instead of blocking window.confirm on mobile');
+  assert.ok(cloudAccess.includes('saveDeviceVaultKey'), 'CloudAccess should persist unlocked key on trusted device');
+  assert.ok(cloudAccess.includes('clearDeviceVaultState'), 'CloudAccess should wipe device key on explicit lock/logout/erase');
+  assert.ok(appJsx.includes('hasRememberedVaultSync'), 'App should suppress initial UploadDialog when device vault is remembered');
 
   const cloudCss = fs.readFileSync(path.join(rootDir, 'src', 'cloud.css'), 'utf8');
   assert.ok(cloudCss.includes('cloudSheetUp'), 'cloud.css should animate the mobile bottom sheet');

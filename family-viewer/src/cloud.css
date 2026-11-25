@@ -86,6 +86,9 @@
 .cloud-dialog .cloud-check{display:flex;flex-direction:row;align-items:center;gap:11px;font-size:13px;font-weight:500;margin:14px 0;padding:12px 13px;border:1px solid #dbe5cf;border-radius:11px;background:#fafcf7;line-height:1.5;cursor:pointer;min-height:48px;transition:background .15s,border-color .15s}
 .cloud-dialog .cloud-check.is-checked{background:#eff6e7;border-color:#9fbc89;color:#284623}
 .cloud-dialog .cloud-check input[type=checkbox]{margin-top:0;width:20px;height:20px}
+.cloud-remember-check>span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cloud-remember-check strong{font-size:13px;font-weight:600;color:#2c482b}
+.cloud-remember-check small{font-size:11px;font-weight:400;color:#586d4e;line-height:1.45}
 
 .cloud-recovery-form{margin-top:4px;padding:0 0 4px}
 .cloud-recovery-form .button{margin-top:14px}

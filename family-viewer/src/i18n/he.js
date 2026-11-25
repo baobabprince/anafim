@@ -194,6 +194,8 @@ export default {
   'cloud.vault': 'כספת',
   'cloud.openVault': 'פתיחת כספת',
   'cloud.checkingVault': 'בודקים את הכספת בענן…',
+  'cloud.rememberDevice': 'השארת הכספת פתוחה במכשיר הזה',
+  'cloud.rememberDeviceHint': 'ללא צורך בהקלדת סיסמה בכל כניסה מחדש במכשיר האישי הזה.',
   'toast.saved': 'הקובץ נשמר במכשיר',
   'toast.deleted': 'הקובץ נמחק מהמכשיר',
   'fx.mother': 'אמא',

@@ -43,6 +43,16 @@ import {
   PASSWORD_MIN_LENGTH,
 } from './vault-crypto.js';
 import { registerPasskey, authenticatePasskey, passkeyEnvironment } from './vault-passkey.js';
+import {
+  loadRememberDevicePref,
+  saveRememberDevicePref,
+  saveDeviceVaultKey,
+  loadDeviceVaultKey,
+  saveDeviceVaultCache,
+  loadDeviceVaultCache,
+  loadAnyDeviceVaultForUser,
+  clearDeviceVaultState,
+} from './vault-device-key.js';
 import setupSQL from '../supabase/migrations/202610180001_private_vault.sql?raw';
 
 const AUTO_SYNC_PREF_KEY = 'anafim-cloud-autosync-v1';
@@ -198,6 +208,7 @@ export default function CloudAccess({
   const [vaultPassword2, setVaultPassword2] = useState('');
   const [unlockPassword, setUnlockPassword] = useState('');
   const [confirmAction, setConfirmAction] = useState(null);
+  const [rememberDevice, setRememberDevice] = useState(loadRememberDevicePref);
 
   const clientRef = useRef(null);
   const gatewayRef = useRef(null);
@@ -216,6 +227,8 @@ export default function CloudAccess({
   propsRef.current = { bundle, selectedId, onApplySnapshot, onClear, isModalOpen, onDialogOpen, onToast };
   const autoRef = useRef(auto);
   autoRef.current = auto;
+  const rememberDeviceRef = useRef(rememberDevice);
+  rememberDeviceRef.current = rememberDevice;
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
 
@@ -227,6 +240,19 @@ export default function CloudAccess({
   const setAutoSync = next => {
     setAuto(next);
     saveAutoSyncPref(next);
+  };
+
+  const updateRememberDevice = next => {
+    setRememberDevice(next);
+    saveRememberDevicePref(next);
+    if (!next) {
+      clearDeviceVaultState();
+    } else if (keyRef.current && userIdRef.current && headRef.current?.vault_id) {
+      saveDeviceVaultKey(userIdRef.current, headRef.current.vault_id, keyRef.current);
+      if (!propsRef.current.bundle.isDemo) {
+        saveDeviceVaultCache(userIdRef.current, headRef.current, currentSnapshot(), keyRef.current);
+      }
+    }
   };
 
   const openDialog = () => {
@@ -270,9 +296,10 @@ export default function CloudAccess({
   };
 
   const lock = () => {
+    clearDeviceVaultState(userIdRef.current, headRef.current?.vault_id);
     wipe();
     setPhase(headRef.current ? 'locked' : 'needs-create');
-    setNotice('הכספת ננעלה והעותק הפתוח נסגר. מפתח הפענוח אינו נשמר בדפדפן.');
+    setNotice('הכספת ננעלה והמפתח הוסר מהמכשיר. לפתיחה מחדש יש להקליד סיסמה.');
   };
 
   async function task(operation) {
@@ -349,13 +376,52 @@ export default function CloudAccess({
     setPhase('loading');
     gateway
       .head()
-      .then(h => {
+      .then(async h => {
         assertEpoch(stamp);
         if (h) validateEnvelope(h.envelope, user.id);
         updateHead(h);
-        setPhase(h ? 'locked' : 'needs-create');
+        if (!h) {
+          setPhase('needs-create');
+          return;
+        }
+        if (rememberDeviceRef.current) {
+          const storedKey = await loadDeviceVaultKey(user.id, h.vault_id);
+          assertEpoch(stamp);
+          if (storedKey) {
+            keyRef.current = storedKey;
+            try {
+              await readChoice(stamp, h, { silentAuto: true });
+              return;
+            } catch (err) {
+              if (err?.name === 'AbortError' || stamp !== epochRef.current) return;
+              keyRef.current = null;
+              await clearDeviceVaultState(user.id, h.vault_id);
+            }
+          }
+        }
+        if (stamp === epochRef.current) setPhase('locked');
       })
-      .catch(() => {
+      .catch(async err => {
+        if (err?.name === 'AbortError' || stamp !== epochRef.current) return;
+        if (rememberDeviceRef.current) {
+          try {
+            const offline = await loadAnyDeviceVaultForUser(user.id);
+            if (stamp !== epochRef.current) return;
+            if (offline?.key && offline?.head && offline?.payload) {
+              validateEnvelope(offline.head.envelope, user.id);
+              keyRef.current = offline.key;
+              updateHead(offline.head);
+              if (offline.payload.raw && propsRef.current.bundle.isDemo && !propsRef.current.isModalOpen) {
+                await applyRemoteSnapshot(stamp, { head: offline.head, payload: offline.payload }, { closeDialog: true, silent: true });
+              } else {
+                baselineRef.current = await snapshotFingerprint(offline.payload);
+                setPhase('ready');
+              }
+              setNotice('נפתח מהעותק המוצפן במכשיר (ללא חיבור). יסונכרן אוטומטית כשהחיבור יחזור.');
+              return;
+            }
+          } catch {}
+        }
         if (stamp === epochRef.current) {
           setError('לא ניתן לקרוא את הכספת. נסו שוב בעוד רגע.');
           setPhase('connection-error');
@@ -367,7 +433,7 @@ export default function CloudAccess({
     };
   }, [user?.id, config]);
 
-  async function applyRemoteSnapshot(stamp, item, { closeDialog = false } = {}) {
+  async function applyRemoteSnapshot(stamp, item, { closeDialog = false, silent = false } = {}) {
     if (propsRef.current.isModalOpen) throw new Error(t('cloud.closeUploadFirst'));
     assertEpoch(stamp);
     const originalBundle = propsRef.current.bundle;
@@ -380,15 +446,28 @@ export default function CloudAccess({
     pendingRef.current = null;
     setPhase('ready');
     setNotice(t('cloud.loadedFromCloud'));
-    propsRef.current.onToast?.('האילן נטען מהענן');
+    if (!silent) propsRef.current.onToast?.('האילן נטען מהענן');
     if (closeDialog) setOpen(false);
   }
 
-  async function readChoice(stamp, h = headRef.current) {
+  async function readChoice(stamp, h = headRef.current, { silentAuto = false } = {}) {
     if (!h) throw new Error(t('cloud.noVault'));
     validateEnvelope(h.envelope, userIdRef.current);
-    const payload = await gatewayRef.current.read(keyRef.current, h);
-    assertEpoch(stamp);
+    let payload = null;
+    if (rememberDeviceRef.current) {
+      const cached = await loadDeviceVaultCache(userIdRef.current, h.vault_id, keyRef.current);
+      assertEpoch(stamp);
+      if (cached?.head?.revision_id === h.revision_id) {
+        payload = cached.payload;
+      }
+    }
+    if (!payload) {
+      payload = await gatewayRef.current.read(keyRef.current, h);
+      assertEpoch(stamp);
+      if (rememberDeviceRef.current) {
+        saveDeviceVaultCache(userIdRef.current, h, payload, keyRef.current);
+      }
+    }
     pendingRef.current = { head: h, payload };
     const same = (await snapshotFingerprint(currentSnapshot())) === (await snapshotFingerprint(payload));
     assertEpoch(stamp);
@@ -400,7 +479,7 @@ export default function CloudAccess({
       setNotice(t('cloud.openCanAuto'));
     } else if (payload.raw && propsRef.current.bundle.isDemo && !propsRef.current.isModalOpen) {
       // Local view is only the demo tree: load the user's cloud tree immediately.
-      await applyRemoteSnapshot(stamp, { head: h, payload }, { closeDialog: true });
+      await applyRemoteSnapshot(stamp, { head: h, payload }, { closeDialog: true, silent: silentAuto });
     } else {
       updateHead(h);
       setPhase('choice');
@@ -423,6 +502,9 @@ export default function CloudAccess({
     assertEpoch(stamp);
     baselineRef.current = fp;
     updateHead(h);
+    if (rememberDeviceRef.current && userIdRef.current) {
+      saveDeviceVaultCache(userIdRef.current, h, payload, keyRef.current);
+    }
     pendingRef.current = null;
     setPhase('ready');
     setNotice(t('cloud.savedEncrypted'));
@@ -479,6 +561,9 @@ export default function CloudAccess({
       assertEpoch(stamp);
       baselineRef.current = await snapshotFingerprint(payload);
       updateHead(latest);
+      if (rememberDeviceRef.current && userIdRef.current) {
+        saveDeviceVaultCache(userIdRef.current, latest, payload, keyRef.current);
+      }
       setNotice(t('cloud.remoteUpdate'));
     } catch {
       if (stamp === epochRef.current) setNotice('הסנכרון ממתין לחיבור. האילן הפתוח נשמר; לא נדרסו גרסאות.');
@@ -525,6 +610,7 @@ export default function CloudAccess({
   }, [bundle.raw, bundle.filename, auto, phase]);
 
   useEffect(() => {
+    if (rememberDevice) return;
     if (phase !== 'ready' && phase !== 'choice' && phase !== 'conflict') return;
     let timer;
     const reset = () => {
@@ -541,7 +627,7 @@ export default function CloudAccess({
       window.removeEventListener('pointerdown', reset);
       window.removeEventListener('keydown', reset);
     };
-  }, [phase]);
+  }, [phase, rememberDevice]);
 
   const configure = () => {
     try {
@@ -619,6 +705,10 @@ export default function CloudAccess({
       keyRef.current = initial.key;
       baselineRef.current = await snapshotFingerprint(payload);
       updateHead(h);
+      if (rememberDeviceRef.current && user?.id) {
+        await saveDeviceVaultKey(user.id, h.vault_id, initial.key);
+        await saveDeviceVaultCache(user.id, h, payload, initial.key);
+      }
       pendingRef.current = null;
       setRecovery('');
       setRecoveryCopied(false);
@@ -636,6 +726,11 @@ export default function CloudAccess({
       throw new Error('הכספת השתנתה בזמן שהייתה נעולה. יש לפתוח את הכספת המעודכנת.');
     }
     keyRef.current = key;
+    if (rememberDeviceRef.current) {
+      await saveDeviceVaultKey(user.id, latest.vault_id, key);
+    } else {
+      await clearDeviceVaultState(user.id, latest.vault_id);
+    }
     await readChoice(stamp, latest);
   }
 
@@ -730,6 +825,7 @@ export default function CloudAccess({
   const performLogout = () =>
     task(async () => {
       setConfirmAction(null);
+      await clearDeviceVaultState();
       wipe();
       updateHead(null);
       const { error } = await clientRef.current.auth.signOut({ scope: 'local' });
@@ -774,6 +870,7 @@ export default function CloudAccess({
       setConfirmAction(null);
       await gatewayRef.current.delete(headRef.current.revision_id);
       assertEpoch(stamp);
+      await clearDeviceVaultState();
       wipe();
       updateHead(null);
       setPhase('needs-create');
@@ -1136,6 +1233,18 @@ export default function CloudAccess({
                   {t('cloud.passkey')}
                 </button>
               )}
+              <label className={`cloud-check cloud-remember-check ${rememberDevice ? 'is-checked' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={rememberDevice}
+                  onChange={e => updateRememberDevice(e.target.checked)}
+                  disabled={busy}
+                />
+                <span>
+                  <strong>{t('cloud.rememberDevice')}</strong>
+                  <small>{t('cloud.rememberDeviceHint')}</small>
+                </span>
+              </label>
               <div className="cloud-secondary-links">
                 <button type="button" className="cloud-secondary-btn" onClick={() => setShowRecovery(v => !v)} aria-expanded={showRecovery}>
                   שכחתם סיסמה? פתיחה עם {t('cloud.recovery')}
@@ -1240,6 +1349,20 @@ export default function CloudAccess({
                 <input type="checkbox" className="cloud-switch" checked={auto} onChange={e => setAutoSync(e.target.checked)} disabled={busy} />
               </label>
 
+              <label className="cloud-toggle-row">
+                <span>
+                  <strong>{t('cloud.rememberDevice')}</strong>
+                  <small>{t('cloud.rememberDeviceHint')}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  className="cloud-switch"
+                  checked={rememberDevice}
+                  onChange={e => updateRememberDevice(e.target.checked)}
+                  disabled={busy}
+                />
+              </label>
+
               <div className="cloud-actions">
                 <button type="button" className="button button-primary" disabled={busy} onClick={syncNow}>
                   <RefreshCw size={16} />
@@ -1295,7 +1418,12 @@ export default function CloudAccess({
                     <span>מחיקת הכספת וכל גרסאותיה מהענן</span>
                   </button>
                 </div>
-                <p>{t('cloud.idleLock')} גישה לענן אינה מעניקה מפתח פענוח — תוכן האילן מוצפן במכשיר לפני ההעלאה. אין לשלוח את מפתח השחזור לאף גורם.</p>
+                <p>
+                  {rememberDevice
+                    ? 'במכשיר הזה הכספת נשארת פתוחה עד לנעילה ידנית או התנתקות. '
+                    : `${t('cloud.idleLock')} `}
+                  גישה לענן אינה מעניקה מפתח פענוח — תוכן האילן מוצפן במכשיר לפני ההעלאה. אין לשלוח את מפתח השחזור לאף גורם.
+                </p>
               </details>
             </div>
           )}

@@ -194,6 +194,8 @@ export default {
   'cloud.vault': 'Vault',
   'cloud.openVault': 'Open vault',
   'cloud.checkingVault': 'Checking cloud vault…',
+  'cloud.rememberDevice': 'Keep vault unlocked on this device',
+  'cloud.rememberDeviceHint': 'Skip typing your password on future visits on this personal device.',
   'toast.saved': 'File saved on this device',
   'toast.deleted': 'File deleted from this device',
   'fx.mother': 'Mother',
