@@ -17,6 +17,9 @@ import {
   AlertTriangle,
   LoaderCircle,
   ChevronLeft,
+  Fingerprint,
+  History,
+  Trash2,
 } from 'lucide-react';
 import {
   loadCloudConfig,
@@ -43,6 +46,29 @@ import { registerPasskey, authenticatePasskey, passkeyEnvironment } from './vaul
 import setupSQL from '../supabase/migrations/202610180001_private_vault.sql?raw';
 
 const AUTO_SYNC_PREF_KEY = 'anafim-cloud-autosync-v1';
+const OAUTH_PENDING_KEY = 'anafim-cloud-oauth-pending-v1';
+
+function markOAuthPending() {
+  try {
+    sessionStorage.setItem(OAUTH_PENDING_KEY, '1');
+  } catch {}
+}
+
+function clearOAuthPending() {
+  try {
+    sessionStorage.removeItem(OAUTH_PENDING_KEY);
+  } catch {}
+}
+
+function consumeOAuthPending() {
+  try {
+    if (sessionStorage.getItem(OAUTH_PENDING_KEY) === '1') {
+      sessionStorage.removeItem(OAUTH_PENDING_KEY);
+      return true;
+    }
+  } catch {}
+  return false;
+}
 
 function loadAutoSyncPref() {
   try {
@@ -97,11 +123,11 @@ function GoogleMark() {
   );
 }
 
-function PasswordField({ label, value, onChange, dir, autoComplete, minLength, placeholder }) {
+function PasswordField({ label, value, onChange, dir, autoComplete, minLength, placeholder, enterKeyHint, hint, hintTone = '' }) {
   const [visible, setVisible] = useState(false);
   return (
-    <label>
-      {label}
+    <label className="cloud-field">
+      <span>{label}</span>
       <span className="cloud-password-wrap">
         <input
           type={visible ? 'text' : 'password'}
@@ -109,8 +135,18 @@ function PasswordField({ label, value, onChange, dir, autoComplete, minLength, p
           value={value}
           onChange={onChange}
           autoComplete={autoComplete}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint={enterKeyHint}
           minLength={minLength}
           placeholder={placeholder}
+          onFocus={e => {
+            const el = e.currentTarget;
+            if (typeof window !== 'undefined' && window.innerWidth <= 600) {
+              setTimeout(() => el.scrollIntoView?.({ block: 'center', behavior: 'smooth' }), 180);
+            }
+          }}
         />
         <button
           type="button"
@@ -119,9 +155,10 @@ function PasswordField({ label, value, onChange, dir, autoComplete, minLength, p
           aria-label={visible ? 'הסתרת סיסמה' : 'הצגת סיסמה'}
           title={visible ? 'הסתרת סיסמה' : 'הצגת סיסמה'}
         >
-          {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+          {visible ? <EyeOff size={18} /> : <Eye size={18} />}
         </button>
       </span>
+      {hint && <small className={`cloud-field-hint ${hintTone ? `is-${hintTone}` : ''}`}>{hint}</small>}
     </label>
   );
 }
@@ -160,6 +197,7 @@ export default function CloudAccess({
   const [vaultPassword, setVaultPassword] = useState('');
   const [vaultPassword2, setVaultPassword2] = useState('');
   const [unlockPassword, setUnlockPassword] = useState('');
+  const [confirmAction, setConfirmAction] = useState(null);
 
   const clientRef = useRef(null);
   const gatewayRef = useRef(null);
@@ -193,6 +231,7 @@ export default function CloudAccess({
 
   const openDialog = () => {
     propsRef.current.onDialogOpen?.();
+    setConfirmAction(null);
     setOpen(true);
     setError('');
   };
@@ -226,6 +265,7 @@ export default function CloudAccess({
     setHistory([]);
     setShowRecovery(false);
     setShowHistory(false);
+    setConfirmAction(null);
     if (clearView) propsRef.current.onClear();
   };
 
@@ -296,6 +336,12 @@ export default function CloudAccess({
     if (!user) {
       setPhase('signed-out');
       return;
+    }
+    if (consumeOAuthPending()) {
+      propsRef.current.onDialogOpen?.();
+      setConfirmAction(null);
+      setOpen(true);
+      setError('');
     }
     const stamp = epochRef.current;
     const gateway = new VaultGateway(clientRef.current, user.id);
@@ -513,6 +559,7 @@ export default function CloudAccess({
   const login = () =>
     task(async () => {
       if (!cloudEnvironment()) throw new Error(t('cloud.httpsOnly'));
+      markOAuthPending();
       const { error } = await clientRef.current.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -521,7 +568,10 @@ export default function CloudAccess({
           queryParams: { prompt: 'select_account' },
         },
       });
-      if (error) throw error;
+      if (error) {
+        clearOAuthPending();
+        throw error;
+      }
     });
 
   const create = () =>
@@ -677,14 +727,9 @@ export default function CloudAccess({
       await saveCurrent(stamp, next, headRef.current.revision_id);
     });
 
-  const logout = () =>
+  const performLogout = () =>
     task(async () => {
-      if (
-        !propsRef.current.bundle.isDemo &&
-        !window.confirm('ההתנתקות תסגור גם את האילן הפתוח ותמחק את העותק המקומי שנזכר בדפדפן. העותק המוצפן בענן לא יימחק. להמשיך?')
-      ) {
-        return;
-      }
+      setConfirmAction(null);
       wipe();
       updateHead(null);
       const { error } = await clientRef.current.auth.signOut({ scope: 'local' });
@@ -695,6 +740,14 @@ export default function CloudAccess({
       setUser(null);
       setPhase('signed-out');
     });
+
+  const logout = () => {
+    if (propsRef.current.bundle.isDemo) {
+      performLogout();
+      return;
+    }
+    setConfirmAction('logout');
+  };
 
   const loadHistory = () =>
     task(async stamp => {
@@ -716,9 +769,9 @@ export default function CloudAccess({
       setNotice('נבחרה גרסה קודמת. טעינתה לא מחליפה את גרסת הענן עד לשמירה מפורשת.');
     });
 
-  const erase = () =>
+  const performErase = () =>
     task(async stamp => {
-      if (!window.confirm('למחוק לצמיתות את הכספת ואת כל גרסאותיה מהענן? לא ניתן לשחזר מחיקה זו מתוך היישום.')) return;
+      setConfirmAction(null);
       await gatewayRef.current.delete(headRef.current.revision_id);
       assertEpoch(stamp);
       wipe();
@@ -727,14 +780,25 @@ export default function CloudAccess({
       setNotice(t('cloud.deletedGoogleRemains'));
     });
 
+  const erase = () => {
+    setConfirmAction('erase');
+  };
+
+  const confirmCancelSetup = () => {
+    pendingRef.current = null;
+    setRecovery('');
+    setRecoveryCopied(false);
+    setConfirmAction(null);
+    setPhase('needs-create');
+    setOpen(false);
+  };
+
   const close = () => {
     if (phase === 'recovery-setup') {
-      if (!window.confirm('מפתח השחזור עדיין לא אושר והכספת לא נשמרה. לבטל את ההקמה?')) return;
-      pendingRef.current = null;
-      setRecovery('');
-      setRecoveryCopied(false);
-      setPhase('needs-create');
+      setConfirmAction('cancel-setup');
+      return;
     }
+    setConfirmAction(null);
     setOpen(false);
   };
 
@@ -804,6 +868,8 @@ export default function CloudAccess({
           subtitle="גיבוי וסנכרון מוצפן במכשיר — רק לכם יש מפתח."
           onClose={close}
           className="cloud-dialog"
+          backdropClassName="cloud-modal-backdrop"
+          icon={unlocked ? <ShieldCheck size={24} /> : <LockKeyhole size={24} />}
         >
           {error && (
             <div className="cloud-error" role="alert">
@@ -815,6 +881,52 @@ export default function CloudAccess({
             <p className="cloud-notice" role="status">
               {notice}
             </p>
+          )}
+          {confirmAction && (
+            <div className={`cloud-inline-confirm ${confirmAction === 'erase' ? 'is-danger' : ''}`} role="alertdialog" aria-label="אישור פעולה">
+              <div className="cloud-inline-confirm-copy">
+                <AlertTriangle size={18} />
+                <div>
+                  <strong>
+                    {confirmAction === 'erase'
+                      ? 'מחיקת הכספת לצמיתות?'
+                      : confirmAction === 'logout'
+                        ? 'התנתקות מהחשבון?'
+                        : 'ביטול הקמת הכספת?'}
+                  </strong>
+                  <p>
+                    {confirmAction === 'erase'
+                      ? 'הכספת וכל גרסאותיה יימחקו מהענן ללא אפשרות שחזור מתוך היישום.'
+                      : confirmAction === 'logout'
+                        ? 'ההתנתקות תסגור את האילן הפתוח ותמחק את העותק המקומי. העותק המוצפן בענן לא יימחק.'
+                        : 'מפתח השחזור עדיין לא אושר והכספת עדיין לא נשמרה בענן.'}
+                  </p>
+                </div>
+              </div>
+              <div className="cloud-inline-confirm-actions">
+                <button
+                  type="button"
+                  className={`button ${confirmAction === 'erase' ? 'button-danger' : 'button-primary'}`}
+                  disabled={busy}
+                  onClick={
+                    confirmAction === 'erase'
+                      ? performErase
+                      : confirmAction === 'logout'
+                        ? performLogout
+                        : confirmCancelSetup
+                  }
+                >
+                  {confirmAction === 'erase'
+                    ? 'כן, למחוק לצמיתות'
+                    : confirmAction === 'logout'
+                      ? 'התנתקות'
+                      : 'ביטול ההקמה'}
+                </button>
+                <button type="button" className="button button-white" disabled={busy} onClick={() => setConfirmAction(null)}>
+                  חזרה
+                </button>
+              </div>
+            </div>
           )}
           {!cloudEnvironment() && (
             <div className="cloud-warning">
@@ -832,16 +944,16 @@ export default function CloudAccess({
                 <li>מזינים כאן כתובת פרויקט ומפתח ציבורי בלבד.</li>
               </ol>
               <button type="button" className="cloud-link" onClick={() => download('anafim-private-vault.sql', setupSQL)}>
-                <Download size={14} />
+                <Download size={15} />
                 הורדת SQL להגדרת הענן
               </button>
               <label>
                 כתובת פרויקט Supabase
-                <input dir="ltr" type="url" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://your-project.supabase.co" autoComplete="off" />
+                <input dir="ltr" type="url" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://your-project.supabase.co" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} />
               </label>
               <label>
                 מפתח publishable / anon ציבורי
-                <input dir="ltr" value={publicKey} onChange={e => setPublicKey(e.target.value)} autoComplete="off" spellCheck={false} />
+                <input dir="ltr" value={publicKey} onChange={e => setPublicKey(e.target.value)} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} />
               </label>
               <p>אין להזין Client Secret, סיסמת Google, service_role או sb_secret. מפתח ההצפנה לעולם אינו מוגדר כאן.</p>
               <button type="button" className="button button-primary" onClick={configure} disabled={busy}>
@@ -862,18 +974,27 @@ export default function CloudAccess({
 
           {user && (
             <div className="cloud-account">
-              <span dir="auto">{user.email}</span>
-              <button type="button" className="cloud-link" onClick={logout} disabled={busy}>
+              <span dir="auto" title={user.email || ''}>{user.email}</span>
+              <button type="button" className="cloud-account-logout" onClick={logout} disabled={busy}>
                 <LogOut size={14} />
                 התנתקות
               </button>
             </div>
           )}
 
+          {user && phase === 'loading' && (
+            <div className="cloud-loading-state" role="status">
+              <LoaderCircle size={22} className="spin" />
+              <span>{t('cloud.checkingVault')}</span>
+            </div>
+          )}
+
           {user && phase === 'needs-create' && (
             <div className="cloud-step">
-              <span className="cloud-step-number">01</span>
-              <h3>בחירת {t('cloud.password')}</h3>
+              <div className="cloud-step-title-row">
+                <span className="cloud-step-number">01</span>
+                <h3>בחירת {t('cloud.password')}</h3>
+              </div>
               <p>בחרו סיסמה פרטית לכספת (לפחות {PASSWORD_MIN_LENGTH} תווים, לא סיסמת Google). בשלב הבא תקבלו {t('cloud.recovery')} לשמירה.</p>
               <form
                 className="cloud-recovery-form"
@@ -887,16 +1008,40 @@ export default function CloudAccess({
                   value={vaultPassword}
                   onChange={e => setVaultPassword(e.target.value)}
                   autoComplete="new-password"
+                  enterKeyHint="next"
                   minLength={PASSWORD_MIN_LENGTH}
+                  placeholder={`לפחות ${PASSWORD_MIN_LENGTH} תווים`}
+                  hint={
+                    vaultPassword.length === 0
+                      ? ''
+                      : vaultPassword.length >= PASSWORD_MIN_LENGTH
+                        ? 'אורך הסיסמה תקין'
+                        : `עוד ${PASSWORD_MIN_LENGTH - vaultPassword.length} תווים לפחות`
+                  }
+                  hintTone={vaultPassword.length >= PASSWORD_MIN_LENGTH ? 'ok' : 'warn'}
                 />
                 <PasswordField
                   label="אימות סיסמה"
                   value={vaultPassword2}
                   onChange={e => setVaultPassword2(e.target.value)}
                   autoComplete="new-password"
+                  enterKeyHint="done"
                   minLength={PASSWORD_MIN_LENGTH}
+                  placeholder="הקלידו שוב את הסיסמה"
+                  hint={
+                    vaultPassword2.length === 0
+                      ? ''
+                      : vaultPassword === vaultPassword2
+                        ? 'הסיסמאות תואמות'
+                        : 'הסיסמאות אינן זהות'
+                  }
+                  hintTone={vaultPassword === vaultPassword2 ? 'ok' : 'warn'}
                 />
-                <button className="button button-primary button-full" disabled={busy || vaultPassword.length < PASSWORD_MIN_LENGTH} type="submit">
+                <button
+                  className="button button-primary button-full"
+                  disabled={busy || vaultPassword.length < PASSWORD_MIN_LENGTH}
+                  type="submit"
+                >
                   <KeyRound size={17} />
                   המשך למפתח השחזור
                 </button>
@@ -906,28 +1051,30 @@ export default function CloudAccess({
 
           {phase === 'recovery-setup' && (
             <div className="cloud-step">
-              <span className="cloud-step-number">02</span>
-              <h3>שמירת {t('cloud.recovery')}</h3>
+              <div className="cloud-step-title-row">
+                <span className="cloud-step-number">02</span>
+                <h3>שמירת {t('cloud.recovery')}</h3>
+              </div>
               <p>שמרו את המפתח במקום בטוח (למשל במנהל סיסמאות או קובץ פרטי). בלעדיו לא ניתן לשחזר את הכספת במקרה ששוכחים את הסיסמה.</p>
               <code className="cloud-recovery-code" dir="ltr">
                 {recovery}
               </code>
               <div className="cloud-recovery-actions">
                 <button type="button" className="button button-white" onClick={handleCopyRecovery}>
-                  {recoveryCopied ? <Check size={15} /> : <Copy size={15} />}
-                  {recoveryCopied ? 'המפתח הועתק' : 'העתקת מפתח'}
+                  {recoveryCopied ? <Check size={16} /> : <Copy size={16} />}
+                  {recoveryCopied ? 'הועתק!' : 'העתקת מפתח'}
                 </button>
                 <button type="button" className="button button-white" onClick={handleDownloadRecovery}>
-                  <Download size={15} />
+                  <Download size={16} />
                   הורדה כקובץ
                 </button>
               </div>
-              <label className="cloud-check">
+              <label className={`cloud-check ${recoverySaved ? 'is-checked' : ''}`}>
                 <input type="checkbox" checked={recoverySaved} onChange={e => setRecoverySaved(e.target.checked)} />
-                שמרתי את מפתח השחזור במקום בטוח
+                <span>שמרתי את מפתח השחזור במקום בטוח</span>
               </label>
               <button type="button" className="button button-primary button-full" disabled={busy || !recoverySaved} onClick={finishCreate}>
-                <ShieldCheck size={16} />
+                <ShieldCheck size={17} />
                 אישור והפעלת סנכרון מוצפן
               </button>
             </div>
@@ -936,7 +1083,9 @@ export default function CloudAccess({
           {user && phase === 'locked' && (
             <div className="cloud-step">
               <div className="cloud-step-header">
-                <LockKeyhole size={24} />
+                <span className="cloud-step-badge">
+                  <LockKeyhole size={20} />
+                </span>
                 <div>
                   <h3>{t('cloud.unlock')}</h3>
                   <p className="cloud-meta">
@@ -944,6 +1093,17 @@ export default function CloudAccess({
                   </p>
                 </div>
               </div>
+              {hasPasskeyWrap(head?.envelope) && passkeyEnvironment() && (
+                <button type="button" className="button button-primary button-full cloud-passkey-primary" onClick={unlockPasskey} disabled={busy}>
+                  <Fingerprint size={18} />
+                  {t('cloud.passkey')}
+                </button>
+              )}
+              {hasPasskeyWrap(head?.envelope) && passkeyEnvironment() && hasPasswordWrap(head?.envelope) && (
+                <div className="cloud-divider" aria-hidden="true">
+                  <span>או עם סיסמת הכספת</span>
+                </div>
+              )}
               {hasPasswordWrap(head?.envelope) && (
                 <form
                   className="cloud-recovery-form"
@@ -957,30 +1117,37 @@ export default function CloudAccess({
                     value={unlockPassword}
                     onChange={e => setUnlockPassword(e.target.value)}
                     autoComplete="current-password"
+                    enterKeyHint="done"
+                    placeholder="הקלידו את סיסמת הכספת"
                   />
-                  <button className="button button-primary button-full" disabled={busy || !unlockPassword} type="submit">
-                    <KeyRound size={16} />
+                  <button
+                    className={`button ${hasPasskeyWrap(head?.envelope) && passkeyEnvironment() && !unlockPassword ? 'button-white' : 'button-primary'} button-full`}
+                    disabled={busy || !unlockPassword}
+                    type="submit"
+                  >
+                    <KeyRound size={17} />
                     פתיחת הכספת
                   </button>
                 </form>
               )}
-              {hasPasskeyWrap(head?.envelope) && (
-                <button type="button" className="button button-white button-full" onClick={unlockPasskey} disabled={busy || !passkeyEnvironment()}>
+              {hasPasskeyWrap(head?.envelope) && !passkeyEnvironment() && (
+                <button type="button" className="button button-white button-full" onClick={unlockPasskey} disabled>
                   <KeyRound size={16} />
                   {t('cloud.passkey')}
                 </button>
               )}
               <div className="cloud-secondary-links">
-                <button type="button" className="cloud-link" onClick={() => setShowRecovery(v => !v)}>
+                <button type="button" className="cloud-secondary-btn" onClick={() => setShowRecovery(v => !v)} aria-expanded={showRecovery}>
                   שכחתם סיסמה? פתיחה עם {t('cloud.recovery')}
                 </button>
-                <button type="button" className="cloud-link" disabled={busy} onClick={refresh}>
+                <button type="button" className="cloud-secondary-btn cloud-refresh-btn" disabled={busy} onClick={refresh}>
+                  <RefreshCw size={14} />
                   רענון
                 </button>
               </div>
               {showRecovery && (
                 <form
-                  className="cloud-recovery-form"
+                  className="cloud-recovery-form cloud-recovery-drawer"
                   onSubmit={e => {
                     e.preventDefault();
                     unlockRecovery();
@@ -992,6 +1159,8 @@ export default function CloudAccess({
                     value={recoveryInput}
                     onChange={e => setRecoveryInput(e.target.value)}
                     autoComplete="off"
+                    enterKeyHint="done"
+                    placeholder="ANAFIM1.…"
                   />
                   <button className="button button-white button-full" disabled={busy || !recoveryInput} type="submit">
                     פתיחה באמצעות מפתח שחזור
@@ -1004,18 +1173,25 @@ export default function CloudAccess({
           {phase === 'choice' && pendingRef.current?.payload && (
             <div className="cloud-step">
               <h3>איזה עותק לפתוח?</h3>
-              <p>
-                בענן שמור <bdi>{pendingRef.current.payload.filename || 'כספת ללא אילן'}</bdi>, ובמכשיר פתוח{' '}
-                <bdi>{bundle.filename}</bdi>. גרסאות קודמות נשמרות מוצפנות בענן.
-              </p>
-              <div className="cloud-actions">
-                <button type="button" className="button button-primary" disabled={busy} onClick={() => task(takeRemote)}>
-                  <Download size={15} />
+              <div className="cloud-choice-compare">
+                <div className="cloud-choice-item">
+                  <span>בענן</span>
+                  <strong dir="auto">{pendingRef.current.payload.filename || 'כספת ללא אילן'}</strong>
+                </div>
+                <div className="cloud-choice-item">
+                  <span>במכשיר</span>
+                  <strong dir="auto">{bundle.filename}</strong>
+                </div>
+              </div>
+              <p className="cloud-choice-note">גרסאות קודמות נשמרות מוצפנות בענן — שום נתון לא נמחק.</p>
+              <div className="cloud-actions cloud-actions-stack">
+                <button type="button" className="button button-primary button-full" disabled={busy} onClick={() => task(takeRemote)}>
+                  <Download size={16} />
                   פתיחת העותק מהענן
                 </button>
                 {!bundle.isDemo && (
-                  <button type="button" className="button button-white" disabled={busy} onClick={() => task(s => saveCurrent(s))}>
-                    <Upload size={15} />
+                  <button type="button" className="button button-white button-full" disabled={busy} onClick={() => task(s => saveCurrent(s))}>
+                    <Upload size={16} />
                     שמירת האילן המקומי לענן
                   </button>
                 )}
@@ -1026,14 +1202,16 @@ export default function CloudAccess({
           {phase === 'conflict' && (
             <div className="cloud-step">
               <div className="cloud-step-header">
-                <AlertTriangle size={24} />
+                <span className="cloud-step-badge is-alert">
+                  <AlertTriangle size={20} />
+                </span>
                 <div>
                   <h3>נמצא עדכון במכשיר אחר</h3>
                   <p className="cloud-meta">שום נתון לא נדרס — בחרו איזו גרסה לשמור.</p>
                 </div>
               </div>
               <button type="button" className="button button-primary button-full" disabled={busy} onClick={refresh}>
-                <RefreshCw size={16} />
+                <RefreshCw size={17} />
                 בדיקת הגרסה החדשה ובחירת עותק
               </button>
             </div>
@@ -1055,20 +1233,20 @@ export default function CloudAccess({
               </div>
 
               <label className="cloud-toggle-row">
-                <input type="checkbox" checked={auto} onChange={e => setAutoSync(e.target.checked)} disabled={busy} />
                 <span>
                   <strong>סנכרון אוטומטי בין מכשירים</strong>
                   <small>שומר ומעדכן ברקע כל עוד הכספת פתוחה במכשיר.</small>
                 </span>
+                <input type="checkbox" className="cloud-switch" checked={auto} onChange={e => setAutoSync(e.target.checked)} disabled={busy} />
               </label>
 
               <div className="cloud-actions">
                 <button type="button" className="button button-primary" disabled={busy} onClick={syncNow}>
-                  <RefreshCw size={15} />
+                  <RefreshCw size={16} />
                   סנכרון עכשיו
                 </button>
                 <button type="button" className="button button-white" disabled={busy} onClick={lock}>
-                  <LockKeyhole size={15} />
+                  <LockKeyhole size={16} />
                   {t('cloud.lock')}
                 </button>
               </div>
@@ -1076,40 +1254,47 @@ export default function CloudAccess({
               {bundle.isDemo && (
                 <button
                   type="button"
-                  className="cloud-link"
+                  className="button button-white button-full cloud-demo-upload-btn"
                   onClick={() => {
                     setOpen(false);
                     requestAnimationFrame(onUpload);
                   }}
                 >
+                  <Upload size={16} />
                   פתיחת קובץ GEDCOM לסנכרון
                 </button>
               )}
 
               <details className="cloud-more">
                 <summary>אפשרויות מתקדמות ופרטיות</summary>
-                <button type="button" className="cloud-link" disabled={busy || bundle.isDemo} onClick={enroll}>
-                  <KeyRound size={14} />
-                  הוספת Passkey במכשיר הזה
-                </button>
-                <button type="button" className="cloud-link" disabled={busy} onClick={loadHistory}>
-                  עשר הגרסאות האחרונות בענן
-                </button>
-                {showHistory && (
-                  <div className="cloud-history">
-                    <h4>גרסאות מוצפנות</h4>
-                    {history.map(row => (
-                      <button type="button" key={row.revision_id} disabled={busy} onClick={() => chooseHistory(row)}>
-                        גרסה {row.generation}
-                        <span>{dateLabel(row.updated_at)}</span>
-                        <ChevronLeft size={13} />
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <button type="button" className="cloud-link cloud-danger" disabled={busy} onClick={erase}>
-                  מחיקת הכספת וכל גרסאותיה מהענן
-                </button>
+                <div className="cloud-more-list">
+                  <button type="button" className="cloud-more-item" disabled={busy || bundle.isDemo} onClick={enroll}>
+                    <Fingerprint size={16} />
+                    <span>הוספת Passkey במכשיר הזה</span>
+                    <ChevronLeft size={14} className="cloud-more-arrow" />
+                  </button>
+                  <button type="button" className="cloud-more-item" disabled={busy} onClick={loadHistory}>
+                    <History size={16} />
+                    <span>עשר הגרסאות האחרונות בענן</span>
+                    <ChevronLeft size={14} className="cloud-more-arrow" />
+                  </button>
+                  {showHistory && (
+                    <div className="cloud-history">
+                      <h4>גרסאות מוצפנות</h4>
+                      {history.map(row => (
+                        <button type="button" key={row.revision_id} disabled={busy} onClick={() => chooseHistory(row)}>
+                          <strong>גרסה {row.generation}</strong>
+                          <span>{dateLabel(row.updated_at)}</span>
+                          <ChevronLeft size={14} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <button type="button" className="cloud-more-item cloud-danger" disabled={busy} onClick={erase}>
+                    <Trash2 size={16} />
+                    <span>מחיקת הכספת וכל גרסאותיה מהענן</span>
+                  </button>
+                </div>
                 <p>{t('cloud.idleLock')} גישה לענן אינה מעניקה מפתח פענוח — תוכן האילן מוצפן במכשיר לפני ההעלאה. אין לשלוח את מפתח השחזור לאף גורם.</p>
               </details>
             </div>
@@ -1118,7 +1303,7 @@ export default function CloudAccess({
           {user && phase === 'connection-error' && (
             <div className="cloud-step">
               <button type="button" className="button button-white button-full" disabled={busy} onClick={refresh}>
-                <RefreshCw size={15} />
+                <RefreshCw size={16} />
                 ניסיון חיבור נוסף
               </button>
             </div>

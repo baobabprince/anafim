@@ -88,4 +88,17 @@ test('production CSP, referrer policy, and template interpolation guards stay in
   const appJsx = fs.readFileSync(path.join(rootDir, 'src', 'App.jsx'), 'utf8');
   assert.ok(!appJsx.includes('aria-label="{t('), 'App.jsx should not have quoted {t(...)} aria-labels');
   assert.ok(appJsx.includes('file-cloud-card'), 'FileView should expose quick Cloud Sync entry card');
+  assert.ok(appJsx.includes('topbar-cloud-btn'), 'Topbar should expose direct mobile Vault access button');
+  assert.ok(appJsx.includes('upload-cloud-banner'), 'UploadDialog should offer a shortcut to open the Cloud Vault');
+  assert.ok(appJsx.includes('mobile-vault-banner'), 'Main view should surface a quick unlock banner when Vault is locked');
+
+  assert.ok(cloudAccess.includes('anafim-cloud-oauth-pending-v1'), 'CloudAccess should auto-open Vault after OAuth redirect');
+  assert.ok(cloudAccess.includes('cloud-modal-backdrop'), 'CloudAccess dialog should use mobile bottom-sheet backdrop');
+  assert.ok(cloudAccess.includes("phase === 'loading'"), 'CloudAccess should render an explicit loading state');
+  assert.ok(cloudAccess.includes('autoCapitalize="none"'), 'PasswordField should disable mobile auto-capitalization');
+  assert.ok(!cloudAccess.includes('window.confirm('), 'CloudAccess should use inline confirmations instead of blocking window.confirm on mobile');
+
+  const cloudCss = fs.readFileSync(path.join(rootDir, 'src', 'cloud.css'), 'utf8');
+  assert.ok(cloudCss.includes('cloudSheetUp'), 'cloud.css should animate the mobile bottom sheet');
+  assert.ok(cloudCss.includes('env(safe-area-inset-bottom)'), 'cloud.css should respect mobile safe-area-inset-bottom');
 });

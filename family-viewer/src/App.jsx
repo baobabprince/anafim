@@ -226,7 +226,7 @@ function MiniTree() {
   return <svg className="mini-tree" viewBox="0 0 170 110" fill="none" aria-hidden="true"><path d="M85 102V55M85 78 55 49M85 63l28-28M55 49V27M112 35V18M55 39 36 25" stroke="#789084" strokeWidth="1.5" strokeLinecap="round"/><path d="M49 30C32 28 36 11 36 11s18 3 17 17M58 51c-1-16 15-20 15-20s4 18-12 22M112 35c-3-17 13-24 13-24s7 18-10 26M82 63C66 56 72 39 72 39s20 8 13 24M88 79c1-18 21-20 21-20s1 20-19 22" fill="#c3d0c2"/><circle cx="36" cy="24" r="4" fill="#b57d5d"/><circle cx="56" cy="18" r="5" fill="#b57d5d"/><circle cx="113" cy="12" r="4" fill="#b57d5d"/><path d="M64 103h42" stroke="#a6b4a3" strokeLinecap="round"/></svg>;
 }
 
-function Dialog({title, subtitle, children, onClose, className = '' }) {
+function Dialog({title, subtitle, children, onClose, className = '', backdropClassName = '', icon = null }) {
   const { t } = useI18n();
   const ref = useRef(null);
   const onCloseRef = useRef(onClose);
@@ -240,18 +240,18 @@ function Dialog({title, subtitle, children, onClose, className = '' }) {
         const list = [...ref.current.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), summary, a[href], [tabindex="0"]')].filter(el => el.offsetParent !== null);
         if (!list.length) { e.preventDefault(); return; }
         const first = list[0], last = list.at(-1);
-        if (e.shiftKey && (document.activeElement === first || !ref.current.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === ref.current || !ref.current.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
         else if (!e.shiftKey && (document.activeElement === last || !ref.current.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
       }
     };
     document.addEventListener('keydown', handleKey);
-    ref.current?.querySelector('button')?.focus?.({ preventScroll: true });
+    ref.current?.focus?.({ preventScroll: true });
     return () => { releaseScrollLock(); document.removeEventListener('keydown', handleKey); restoreFocusSafely(previous); };
   }, []);
-  return createPortal(<div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><section className={`dialog ${className}`} role="dialog" aria-modal="true" aria-labelledby="dialog-title" ref={ref}><button className="icon-button dialog-close" onClick={onClose} aria-label={t('common.close')}><X size={20}/></button><div className="dialog-heading"><span className="dialog-icon"><Sprout size={26}/></span><h2 id="dialog-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{children}</section></div>, document.body);
+  return createPortal(<div className={`modal-backdrop ${backdropClassName}`.trim()} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><section className={`dialog ${className}`.trim()} role="dialog" aria-modal="true" aria-labelledby="dialog-title" tabIndex={-1} ref={ref}><button className="icon-button dialog-close" onClick={onClose} aria-label={t('common.close')}><X size={20}/></button><div className="dialog-heading"><span className="dialog-icon">{icon || <Sprout size={26}/>}</span><div className="dialog-heading-copy"><h2 id="dialog-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div></div><div className="dialog-body">{children}</div></section></div>, document.body);
 }
 
-function UploadDialog({ onClose, onImport, onDemo }) {
+function UploadDialog({ onClose, onImport, onDemo, cloudStatus, onOpenCloud }) {
   const { t } = useI18n();
   const [file, setFile] = useState(null), [mediaFiles, setMediaFiles] = useState([]), [preparedImport, setPreparedImport] = useState(null), [encoding, setEncoding] = useState('auto'), [remember, setRemember] = useState(true), [error, setError] = useState(''), [dragging, setDragging] = useState(false), [busy, setBusy] = useState(false), [progress, setProgress] = useState(0), [phase, setPhase] = useState('reading');
   const inputRef = useRef(null), mediaInputRef = useRef(null), abortRef = useRef(null);
@@ -357,6 +357,26 @@ function UploadDialog({ onClose, onImport, onDemo }) {
     compatibility:t('upload.compat'),
   };
   return <Dialog title={t('upload.title')} subtitle={t('upload.subtitle')} onClose={onClose} className="upload-dialog">
+    {onOpenCloud && cloudStatus?.configured && !cloudStatus?.unlocked && (
+      <button
+        type="button"
+        className={`upload-cloud-banner ${cloudStatus.connected ? 'is-connected' : ''}`}
+        disabled={busy}
+        onClick={onOpenCloud}
+      >
+        <span className="upload-cloud-icon">
+          {cloudStatus.connected ? <LockKeyhole size={18} /> : <Cloud size={18} />}
+        </span>
+        <span className="upload-cloud-copy">
+          <strong>{cloudStatus.connected ? 'הכספת שלכם מחוברת בענן' : 'יש לכם אילן שמור בכספת בענן?'}</strong>
+          <span>{cloudStatus.connected ? 'פתחו את הכספת כדי לטעון את האילן בלי לבחור קובץ מחדש' : 'התחברו ופתחו את האילן המוצפן שלכם'}</span>
+        </span>
+        <span className="upload-cloud-cta">
+          {cloudStatus.connected ? t('cloud.openVault') : t('cloud.connecting')}
+          <ChevronLeft size={14} />
+        </span>
+      </button>
+    )}
     <div className="upload-step">
       <div className="upload-step-heading"><span>1</span><div><h3>{t('upload.fileStep')}</h3><p>{t('upload.fileStepHint')}</p></div></div>
       <div
@@ -1507,7 +1527,7 @@ export default function App() {
             onUpload={() => { setMobileMenu(false); setModal('upload'); }}
             isModalOpen={!!modal}
             openSignal={cloudOpenSignal}
-            onDialogOpen={() => setMobileMenu(false)}
+            onDialogOpen={() => { setMobileMenu(false); setModal(current => current === 'upload' ? null : current); }}
             onToast={setToast}
             onStatusChange={setCloudStatus}
           />
@@ -1521,6 +1541,15 @@ export default function App() {
             <Brand compact/>
           </div>
           <div className="topbar-left">
+            <button
+              type="button"
+              className={`topbar-cloud-btn ${cloudStatus.unlocked ? 'is-unlocked' : ''} ${cloudStatus.needsAction ? 'is-alert' : ''} ${cloudStatus.connected && !cloudStatus.unlocked ? 'is-locked' : ''}`}
+              onClick={() => setCloudOpenSignal(n => n + 1)}
+              aria-label={`${t('cloud.vault')} — ${cloudStatus.label}`}
+            >
+              {cloudStatus.needsAction ? <AlertTriangle size={14}/> : cloudStatus.unlocked ? <ShieldCheck size={14}/> : cloudStatus.connected ? <LockKeyhole size={14}/> : <Cloud size={14}/>}
+              <span>{cloudStatus.needsAction ? 'בדיקה' : cloudStatus.unlocked ? t('cloud.vault') : cloudStatus.connected ? t('cloud.locked') : t('cloud.vault')}</span>
+            </button>
             <button className={`demo-badge ${!bundle.isDemo ? 'real-data-badge' : ''}`} onClick={() => changeView('file')}>
               <span/>{bundle.isDemo ? 'מציגים משפחה לדוגמה' : bundle.remembered ? 'נשמר במכשיר הזה' : 'הקובץ שלכם, באופן פרטי'}<ChevronDown size={12}/>
             </button>
@@ -1529,6 +1558,21 @@ export default function App() {
           </div>
         </header>
         <div className="page-content">
+          {cloudStatus.connected && (!cloudStatus.unlocked || cloudStatus.needsAction) && cloudStatus.phase !== 'loading' && view !== 'file' && (
+            <div className={`mobile-vault-banner ${cloudStatus.needsAction ? 'is-alert' : ''}`} role="region" aria-label={t('cloud.vault')}>
+              <span className="mobile-vault-banner-icon">
+                {cloudStatus.needsAction ? <AlertTriangle size={17} /> : <LockKeyhole size={17} />}
+              </span>
+              <div className="mobile-vault-banner-copy">
+                <strong>{cloudStatus.needsAction ? cloudStatus.label : 'הכספת שלכם נעולה'}</strong>
+                <span>{cloudStatus.needsAction ? 'בחרו איזו גרסה להמשיך כדי לשמור על הסנכרון' : 'פתחו את הכספת לטעינה וסנכרון של האילן'}</span>
+              </div>
+              <button type="button" className="mobile-vault-banner-btn" onClick={() => setCloudOpenSignal(n => n + 1)}>
+                {cloudStatus.needsAction ? 'בדיקה' : 'פתיחה'}
+                <ChevronLeft size={14} />
+              </button>
+            </div>
+          )}
           <section className="page-intro">
             <div>
               <div className="intro-eyebrow"><span className="eyebrow-line"/>{view === 'family' ? 'שורשים. אנשים. סיפורים.' : view === 'people' ? 'הסיפור הוא האנשים' : 'מקום אחד לכל הענפים'}</div>
@@ -1588,7 +1632,7 @@ export default function App() {
         <button className={view === 'file' ? 'selected' : ''} onClick={() => changeView('file')}><FileText size={21}/><span>{t('nav.file')}</span></button>
       </nav>
       {modal === 'chart' && <PedigreeDialog Dialog={Dialog} data={bundle.data} person={person} parentFamily={parentFamily} onClose={() => setModal(null)}/>}
-      {modal === 'upload' && <UploadDialog onClose={() => setModal(null)} onImport={loadBundle} onDemo={() => loadBundle(demoBundle())}/>}
+      {modal === 'upload' && <UploadDialog onClose={() => setModal(null)} onImport={loadBundle} onDemo={() => loadBundle(demoBundle())} cloudStatus={cloudStatus} onOpenCloud={() => { setModal(null); setCloudOpenSignal(n => n + 1); }}/>}
       {modal === 'tools' && <ToolsDialog onClose={() => setModal(null)} bundle={bundle} onToast={setToast} />}
       {modal === 'help' && <HelpDialog onClose={() => setModal(null)} onUpload={() => setModal('upload')} onDownload={downloadGedcom} installPrompt={installPrompt} onInstall={handleInstallClick}/>}
       {toast && <div className="toast" role="status"><span className="toast-icon"><Check size={17}/></span><span>{toast}</span><button onClick={() => setToast('')} aria-label="סגירת הודעה"><X size={16}/></button></div>}
