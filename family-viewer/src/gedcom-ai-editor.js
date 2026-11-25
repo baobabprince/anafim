@@ -58,6 +58,230 @@ const ENGLISH_MONTHS = {
   'dec': 'DEC', 'december': 'DEC'
 };
 
+const GEMATRIA_VALUES = {
+  'א': 1, 'ב': 2, 'ג': 3, 'ד': 4, 'ה': 5, 'ו': 6, 'ז': 7, 'ח': 8, 'ט': 9,
+  'י': 10, 'כ': 20, 'ך': 20, 'ל': 30, 'מ': 40, 'ם': 40, 'נ': 50, 'ן': 50,
+  'ס': 60, 'ע': 70, 'פ': 80, 'ף': 80, 'צ': 90, 'ץ': 90,
+  'ק': 100, 'ר': 200, 'ש': 300, 'ת': 400,
+};
+
+const HEBREW_CALENDAR_MONTHS = [
+  ['אדר ב', 'adar ii'],
+  ['אדר שני', 'adar ii'],
+  ['אדר א', 'adar i'],
+  ['אדר ראשון', 'adar i'],
+  ['תשרי', 'tishri'],
+  ['מרחשוון', 'heshvan'],
+  ['מרחשון', 'heshvan'],
+  ['חשוון', 'heshvan'],
+  ['חשון', 'heshvan'],
+  ['כסלו', 'kislev'],
+  ['כסליו', 'kislev'],
+  ['טבת', 'tevet'],
+  ['שבט', 'shevat'],
+  ['אדר', 'adar'],
+  ['ניסן', 'nisan'],
+  ['אייר', 'iyar'],
+  ['איר', 'iyar'],
+  ['סיון', 'sivan'],
+  ['סיוון', 'sivan'],
+  ['תמוז', 'tamuz'],
+  ['מנחם אב', 'av'],
+  ['אב', 'av'],
+  ['אלול', 'elul'],
+];
+
+function gematriaSum(letters) {
+  let sum = 0;
+  for (const ch of letters) {
+    const val = GEMATRIA_VALUES[ch];
+    if (!val) return 0;
+    sum += val;
+  }
+  return sum;
+}
+
+/**
+ * Parse a Hebrew calendar year token (e.g. "תשי\"ב", "בתשי\"ב", "ה'תש\"ח", "תרצ\"ט", "ת\"ש")
+ * into its 4-digit Hebrew year (e.g. 5712). Returns null for non-years like "ת\"א" or "צה\"ל".
+ */
+export function parseHebrewYearToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  let raw = token.trim().replace(/[.,;:!?()[\]]+$/g, '');
+  if (!raw) return null;
+
+  // Allow optional leading preposition ב/ב-/ב־/ל/ל- before a Hebrew year
+  raw = raw.replace(/^(?:ב|ל)[-־]?/, (m, offset, str) => {
+    const rest = str.slice(m.length);
+    return /^(?:ה['׳])?ת["״']?[קרשת]/.test(rest) ? '' : m;
+  });
+
+  // Optional 5000 prefix: ה' / ה׳
+  let hasThousands = false;
+  if (/^ה['׳]/.test(raw)) {
+    hasThousands = true;
+    raw = raw.slice(2);
+  }
+
+  // Must start with ת + century letter (ק/ר/ש/ת => 5500..5899 = 1740..2139 CE)
+  // This avoids false positives on acronyms like ת"א (Tel Aviv) or צה"ל.
+  const hasPunct = /["״'׳]/.test(raw);
+  const letters = raw.replace(/["״'׳]/g, '');
+  if (!/^ת[קרשת][א-ת]{0,3}$/.test(letters)) return null;
+  if (!hasPunct && !hasThousands && letters.length < 3) return null;
+
+  const value = gematriaSum(letters);
+  if (value < 500 || value > 999) return null;
+  return 5000 + value;
+}
+
+function parseHebrewDayToken(token) {
+  if (!token) return null;
+  const trimmed = String(token).trim();
+  if (/^\d{1,2}$/.test(trimmed)) {
+    const n = parseInt(trimmed, 10);
+    return n >= 1 && n <= 30 ? n : null;
+  }
+  const letters = trimmed.replace(/["״'׳]/g, '');
+  if (!/^[א-ל]{1,2}$/.test(letters)) return null;
+  const n = gematriaSum(letters);
+  return n >= 1 && n <= 30 ? n : null;
+}
+
+let cachedHebrewFmt = null;
+function getHebrewCalendarFormatter() {
+  if (!cachedHebrewFmt) {
+    cachedHebrewFmt = new Intl.DateTimeFormat('en-u-ca-hebrew', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+  }
+  return cachedHebrewFmt;
+}
+
+function normalizeIntlHebrewMonth(name) {
+  const s = String(name || '').toLowerCase().trim();
+  if (s === 'tishrei') return 'tishri';
+  if (s === 'cheshvan') return 'heshvan';
+  if (s === 'tammuz') return 'tamuz';
+  if (s === 'shvat') return 'shevat';
+  return s;
+}
+
+function convertHebrewYmdToGedcom(hebrewYear, canonicalMonth = null, hebrewDay = null) {
+  if (!hebrewYear || hebrewYear < 5000 || hebrewYear > 6200) return '';
+  if (!canonicalMonth) {
+    return String(hebrewYear - 3760);
+  }
+  try {
+    const fmt = getHebrewCalendarFormatter();
+    const approxGreg = hebrewYear - 3760;
+    const startUtc = Date.UTC(approxGreg - 1, 7, 15); // Aug 15 of previous year
+    const targetDay = hebrewDay || 15;
+    let firstMonthHit = null;
+
+    for (let offset = 0; offset < 430; offset++) {
+      const dt = new Date(startUtc + offset * 86400000);
+      const parts = fmt.formatToParts(dt);
+      const y = Number(parts.find(p => p.type === 'year')?.value);
+      if (y !== hebrewYear) continue;
+      const m = normalizeIntlHebrewMonth(parts.find(p => p.type === 'month')?.value);
+      const monthMatches = m === canonicalMonth || (canonicalMonth === 'adar' && (m === 'adar' || m === 'adar ii'));
+      if (!monthMatches) continue;
+      const d = Number(parts.find(p => p.type === 'day')?.value);
+      if (!firstMonthHit) firstMonthHit = dt;
+      if (d === targetDay) {
+        const gYear = dt.getUTCFullYear();
+        const gMon = GEDCOM_MONTHS[dt.getUTCMonth()];
+        const gDay = dt.getUTCDate();
+        return hebrewDay ? `${gDay} ${gMon} ${gYear}` : `${gMon} ${gYear}`;
+      }
+    }
+    if (firstMonthHit) {
+      const gYear = firstMonthHit.getUTCFullYear();
+      const gMon = GEDCOM_MONTHS[firstMonthHit.getUTCMonth()];
+      return `${gMon} ${gYear}`;
+    }
+  } catch {
+    // Fallback below if Intl Hebrew calendar is unavailable
+  }
+  return String(hebrewYear - 3760);
+}
+
+/**
+ * Parse a Hebrew calendar date string (e.g. "תשי\"ב", "בתשי\"ב", "ה' באייר תש\"ח", "כ\"ה כסלו תשי\"ב")
+ * into a standard Gregorian GEDCOM date ("1952", "14 MAY 1948", "DEC 1951").
+ */
+export function parseHebrewDateToGedcom(input) {
+  if (!input || typeof input !== 'string') return '';
+  const str = input.trim();
+  if (!str) return '';
+
+  // Find a Hebrew calendar year token in the string
+  const tokens = str.split(/\s+/);
+  let yearIdx = -1;
+  let hebrewYear = null;
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const parsed = parseHebrewYearToken(tokens[i]);
+    if (parsed) {
+      hebrewYear = parsed;
+      yearIdx = i;
+      break;
+    }
+  }
+  if (!hebrewYear) return '';
+
+  const beforeYear = tokens.slice(0, yearIdx).join(' ');
+  let matchedMonth = null;
+  let monthPos = -1;
+  for (const [hebName, canonical] of HEBREW_CALENDAR_MONTHS) {
+    const re = new RegExp(`(?:^|[\\s\\-־])(?:ב[-־]?)?${hebName}(?=$|[\\s\\-־'׳"״,])`);
+    const m = beforeYear.match(re);
+    if (m) {
+      matchedMonth = canonical;
+      monthPos = m.index;
+      break;
+    }
+  }
+
+  let day = null;
+  if (matchedMonth && monthPos >= 0) {
+    const beforeMonth = beforeYear.slice(0, monthPos).trim();
+    const dayToken = beforeMonth.split(/\s+/).at(-1);
+    day = parseHebrewDayToken(dayToken);
+  }
+
+  return convertHebrewYmdToGedcom(hebrewYear, matchedMonth, day);
+}
+
+/**
+ * Extract deterministic Hebrew date conversions from free-form Hebrew text
+ * so small AI models don't guess Hebrew gematria years.
+ */
+export function extractHebrewDateHints(freeText) {
+  if (!freeText || typeof freeText !== 'string') return [];
+  const hints = [];
+  const seen = new Set();
+  const monthAlternation = HEBREW_CALENDAR_MONTHS.map(([heb]) => heb).join('|');
+  const fullRe = new RegExp(
+    `(?:(?:(?:\\d{1,2}|[א-ל]["״'׳]?[א-ט]?["״'׳]?)\\s+)?(?:ב[-־]?)?(?:${monthAlternation})\\s+)?(?:ב[-־]?|ל[-־]?)?(?:ה['׳])?ת["״']?[קרשת][א-ת"״'׳]*`,
+    'g'
+  );
+
+  for (const m of freeText.matchAll(fullRe)) {
+    const phrase = m[0].trim();
+    const gedcom = parseHebrewDateToGedcom(phrase);
+    if (!gedcom) continue;
+    const key = `${phrase}=>${gedcom}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hints.push({ phrase, gedcom });
+  }
+  return hints;
+}
+
 /**
  * Standardize dates to standard GEDCOM format (e.g. "15 MAY 1920" or "1985" or "ABT 1940")
  */
@@ -129,6 +353,10 @@ export function formatToGedcomDate(input) {
     }
   }
 
+  // Check Hebrew calendar dates & gematria years (e.g., "תשי\"ב", "בתשי\"ב", "ה' באייר תש\"ח")
+  const hebrewConverted = parseHebrewDateToGedcom(str);
+  if (hebrewConverted) return hebrewConverted;
+
   // Fallback: if there's a 4-digit year, return it
   const justYear = str.match(/\b(\d{3,4})\b/);
   if (justYear) return justYear[1];
@@ -182,12 +410,38 @@ export const AI_ALLOWED_KEYS = new Set([
   'source'
   ]);
 
+const DATE_FIELDS_SET = new Set([
+  'birthDate', 'deathDate', 'residenceDate',
+  'burialDate', 'cremationDate',
+  'immigrationDate', 'emigrationDate', 'naturalizationDate',
+  'barMitzvahDate', 'batMitzvahDate', 'baptismDate',
+  'graduationDate', 'retirementDate',
+]);
+
+function normalizeCompare(val) {
+  return sanitizeGedcomInline(val).toLowerCase();
+}
+
+function looksLikeEchoedInput(description, freeText) {
+  if (!description || !freeText) return false;
+  const normDesc = normalizeCompare(description);
+  const normText = normalizeCompare(freeText);
+  if (!normDesc || !normText) return false;
+  if (normDesc === normText || normText.includes(normDesc) || normDesc.includes(normText)) {
+    // Only keep if it explicitly looks like a physical trait description
+    const physicalHints = /(גובה|גבוה|נמוך|עיניים|שיער|זקן|משקפיים|רזה|מלא|tall|short|eyes|hair|beard|glasses)/i;
+    if (!physicalHints.test(normDesc)) return true;
+  }
+  return false;
+}
+
 /**
- * Cleans raw AI output before validation: small models often return empty
- * strings for fields the user never mentioned (which would wipe existing data
- * in the diff) or invent extra keys such as "name". Both are dropped.
+ * Cleans raw AI output before validation:
+ * - Drops empty values and unknown keys (small models often emit empty strings or "name").
+ * - When `currentPerson` is provided, drops unchanged no-op fields (e.g. echoing existing givenName/surname/sex).
+ * - When `freeText` is provided, drops `description` (DSCR) if it merely echoes the user's biographical sentence.
  */
-export function cleanAiUpdates(updates) {
+export function cleanAiUpdates(updates, { currentPerson = null, freeText = '' } = {}) {
   if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
     return { cleaned: updates, dropped: [] };
   }
@@ -198,8 +452,39 @@ export function cleanAiUpdates(updates) {
       value == null ||
       (typeof value === 'string' && !value.trim()) ||
       (Array.isArray(value) && value.every((v) => !String(v ?? '').trim()));
-    if (!AI_ALLOWED_KEYS.has(key) || empty) dropped.push(key);
-    else cleaned[key] = value;
+    if (!AI_ALLOWED_KEYS.has(key) || empty) {
+      dropped.push(key);
+      continue;
+    }
+
+    // Small models frequently dump the entire user input into `description` (GEDCOM DSCR = physical description).
+    if (key === 'description' && typeof value === 'string' && freeText && looksLikeEchoedInput(value, freeText)) {
+      dropped.push(key);
+      continue;
+    }
+
+    // Drop unchanged scalar fields that merely echo currentPerson data.
+    if (currentPerson && typeof value === 'string' && key !== 'notes' && key !== 'source' && key !== 'alternateNames' && key !== 'alternateName') {
+      const existing = currentPerson[key];
+      if (existing != null && String(existing).trim() !== '') {
+        const nextNorm = DATE_FIELDS_SET.has(key)
+          ? normalizeCompare(formatToGedcomDate(value))
+          : key === 'sex'
+            ? String(value).trim().toUpperCase()
+            : normalizeCompare(value);
+        const curNorm = DATE_FIELDS_SET.has(key)
+          ? normalizeCompare(formatToGedcomDate(String(existing)))
+          : key === 'sex'
+            ? String(existing).trim().toUpperCase()
+            : normalizeCompare(existing);
+        if (nextNorm === curNorm) {
+          dropped.push(key);
+          continue;
+        }
+      }
+    }
+
+    cleaned[key] = value;
   }
   return { cleaned, dropped };
 }

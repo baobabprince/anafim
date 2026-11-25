@@ -41,9 +41,22 @@ export const getOllamaModel = () => setting('anafim_ollama_model', DEFAULT_MODEL
 
 let availability = { checkedAt: 0, ok: false };
 
+/** Only auto-probe localhost Ollama on loopback pages or when explicitly configured by the user. */
+function shouldProbeOllama() {
+  if (typeof window === 'undefined') return true;
+  if (LOOPBACK_HOSTS.has(window.location?.hostname || '')) return true;
+  try {
+    if (localStorage.getItem('anafim_ollama_url') || localStorage.getItem('anafim_ollama_enabled') === '1') {
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
 /** True if Ollama answers and the configured model is installed. Cached for 10s. */
 export async function isOllamaAvailable() {
   if (typeof fetch === 'undefined') return false;
+  if (!shouldProbeOllama()) return false;
   if (Date.now() - availability.checkedAt < 10_000) return availability.ok;
 
   let ok = false;

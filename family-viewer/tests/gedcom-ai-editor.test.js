@@ -507,3 +507,91 @@ test('updating only givenName or nickname preserves surname when GIVN/SURN subta
   assert.ok(updatedNick.includes('1 NAME משה /כהן/'));
   assert.ok(updatedNick.includes('2 NICK מוישי'));
 });
+
+test('Hebrew calendar years and dates convert deterministically to GEDCOM Gregorian dates', async () => {
+  const { parseHebrewDateToGedcom, extractHebrewDateHints } = await import('../src/gedcom-ai-editor.js');
+
+  assert.equal(formatToGedcomDate('תשי"ב'), '1952');
+  assert.equal(formatToGedcomDate('בתשי"ב'), '1952');
+  assert.equal(formatToGedcomDate("ה'תשי\"ב"), '1952');
+  assert.equal(formatToGedcomDate('תש"ח'), '1948');
+  assert.equal(formatToGedcomDate('תרצ"ט'), '1939');
+  assert.equal(formatToGedcomDate('ת"ש'), '1940');
+  assert.equal(parseHebrewDateToGedcom("ה' באייר תש\"ח"), '14 MAY 1948');
+  assert.equal(parseHebrewDateToGedcom('י"ז בתמוז תשי"ב'), '10 JUL 1952');
+  assert.equal(parseHebrewDateToGedcom('תשרי תשי"ב'), 'OCT 1951');
+
+  // Must NOT mistake common Hebrew acronyms for years
+  assert.equal(parseHebrewDateToGedcom('ת"א'), '');
+  assert.equal(parseHebrewDateToGedcom('צה"ל'), '');
+  assert.equal(parseHebrewDateToGedcom('ד"ר'), '');
+
+  const hints = extractHebrewDateHints('נולד בלבנון ב-1919 ונפטר במצרים בתשי"ב');
+  assert.deepEqual(hints, [{ phrase: 'בתשי"ב', gedcom: '1952' }]);
+});
+
+test('analyzePersonTextWithAi drops unchanged fields, echoed description, and corrects hallucinated Hebrew year', async () => {
+  const person = {
+    id: '@I7@',
+    name: 'צבי בן זמרה',
+    given: 'צבי',
+    surname: 'בן זמרה',
+    sex: 'M',
+  };
+
+  // Simulate exact messy Qwen3-0.6B output from real mobile/desktop test
+  globalThis.window = {
+    location: { hostname: 'baobabprince.github.io' },
+    ai: {
+      languageModel: {
+        capabilities: async () => ({ available: 'readily' }),
+        create: async () => ({
+          prompt: async () => JSON.stringify({
+            givenName: 'צבי',
+            surname: 'בן זמרה',
+            sex: 'M',
+            birthDate: '1919',
+            birthPlace: 'לבנון',
+            deathDate: '1944',
+            deathPlace: 'מצרים',
+            description: 'נולד בלבנון ב-1919 ונפטר במצרים בתשי"ב',
+          }),
+          destroy: () => {},
+        }),
+      },
+    },
+  };
+
+  const result = await analyzePersonTextWithAi(person, 'נולד בלבנון ב-1919 ונפטר במצרים בתשי"ב');
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.sanitized, {
+    birthPlace: 'לבנון',
+    deathPlace: 'מצרים',
+    birthDate: '1919',
+    deathDate: '1952',
+  });
+  assert.equal('givenName' in result.diff, false);
+  assert.equal('surname' in result.diff, false);
+  assert.equal('sex' in result.diff, false);
+  assert.equal('description' in result.diff, false);
+});
+
+test('isOllamaAvailable does not probe localhost on public HTTPS hosts unless explicitly configured', async () => {
+  const { isOllamaAvailable } = await import('../src/ollama-ai-provider.js');
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    return { ok: false };
+  };
+  globalThis.window = {
+    location: { hostname: 'baobabprince.github.io' },
+  };
+  try {
+    const ok = await isOllamaAvailable();
+    assert.equal(ok, false);
+    assert.equal(fetchCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

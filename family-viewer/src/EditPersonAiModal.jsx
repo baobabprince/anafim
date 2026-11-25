@@ -255,12 +255,17 @@ export function EditPersonAiModal({
         return;
       }
 
-      // Prepare updated GEDCOM and show diff preview for user confirmation before saving
-      const updatedRaw = applyPersonUpdatesToGedcom(bundle.raw, person.id, result.sanitized);
+      // Prepare editable diff preview items so user can uncheck or tweak any extracted field before saving
+      const draftItems = Object.entries(result.diff).map(([field, change]) => ({
+        field,
+        old: change.old,
+        value: Array.isArray(change.new) ? change.new.join('\n') : String(change.new ?? ''),
+        isArray: Array.isArray(change.new),
+        checked: true,
+      }));
 
       setPendingUpdate({
-        updatedRaw,
-        updates: result.sanitized,
+        items: draftItems,
         diff: result.diff,
       });
     } catch (err) {
@@ -272,10 +277,46 @@ export function EditPersonAiModal({
   };
 
   const handleConfirmPending = () => {
-    if (!pendingUpdate) return;
-    onApplyUpdate(pendingUpdate);
-    setPendingUpdate(null);
-    onClose();
+    if (!pendingUpdate?.items) return;
+    const rawUpdates = {};
+    for (const item of pendingUpdate.items) {
+      if (!item.checked) continue;
+      if (item.isArray) {
+        const arr = item.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        if (arr.length) rawUpdates[item.field] = arr;
+      } else {
+        const val = item.value.trim();
+        if (val) rawUpdates[item.field] = val;
+      }
+    }
+    if (!Object.keys(rawUpdates).length) {
+      setError('לא נבחרו שדות לעדכון.');
+      return;
+    }
+    const validation = validatePersonUpdates(rawUpdates, {
+      givenName: person.given,
+      surname: person.surname,
+      sex: person.sex,
+      birthDate: person.birth?.date,
+      birthPlace: person.birth?.place,
+      deathDate: person.death?.date,
+      deathPlace: person.death?.place,
+      deathCause: person.death?.cause,
+      occupation: person.occupation,
+      notes: person.notes,
+    });
+    if (!validation.valid) {
+      setError(validation.errors.join(' | '));
+      return;
+    }
+    try {
+      const updatedRaw = applyPersonUpdatesToGedcom(bundle.raw, person.id, validation.sanitized);
+      onApplyUpdate({ updatedRaw, updates: validation.sanitized, diff: validation.diff });
+      setPendingUpdate(null);
+      onClose();
+    } catch (err) {
+      setError(err.message || 'שגיאה בשמירת השינויים.');
+    }
   };
 
   const handleManualSubmit = (e) => {
@@ -707,17 +748,17 @@ export function EditPersonAiModal({
                 padding: '10px 12px',
                 borderRadius: 10,
                 border: '1px solid #c9d5c4',
-                fontSize: 15,
+                fontSize: 16,
                 lineHeight: 1.6,
                 fontFamily: 'inherit',
                 resize: 'vertical',
                 minHeight: 90,
                 touchAction: 'manipulation',
               }}
-              autoFocus
+              autoFocus={typeof window !== 'undefined' && window.innerWidth > 600}
             />
             <span style={{ fontSize: 11, color: '#687b5a', display: 'block', marginTop: 4 }}>
-              ה-AI ינתח את הטקסט, יציג תצוגה מקדימה של השינויים לאישור, ויעדכן רק את הרשומה של אדם זה.
+              ה-AI ינתח את הטקסט, יציג תצוגה מקדימה של השינויים לאישור (אפשר לסמן או לערוך כל שדה), ויעדכן רק את הרשומה של אדם זה.
               {activeProvider?.isCloud
                 ? ' שים לב: במצב Google Gemini פרטי האדם והטקסט שתזין נשלחים לשרתי Google לעיבוד.'
                 : ' במובייל עדיף להזין מפתח Gemini או להשתמש ב-Chrome במחשב עם AI מובנה.'}
@@ -726,32 +767,82 @@ export function EditPersonAiModal({
 
           {pendingUpdate && (
             <div
+              className="ai-diff-preview"
               role="region"
               aria-label="תצוגה מקדימה של השינויים"
-              style={{
-                marginBottom: 14,
-                padding: '12px 14px',
-                borderRadius: 10,
-                background: '#f5f9f0',
-                border: '1px solid #c6dab6',
-                fontSize: 12,
-              }}
             >
-              <strong style={{ display: 'block', color: '#2e4a2b', marginBottom: 8 }}>
-                תצוגה מקדימה — יש לאשר לפני העדכון באילן:
+              <strong className="ai-diff-heading">
+                תצוגה מקדימה — ניתן לבחור או לתקן כל שדה לפני השמירה:
               </strong>
-              <ul style={{ margin: 0, paddingInlineStart: 18, display: 'grid', gap: 6 }}>
-                {Object.entries(pendingUpdate.diff).map(([field, change]) => (
-                  <li key={field} style={{ color: '#374c34', lineHeight: 1.5 }}>
-                    <strong>{FIELD_LABELS[field] || field}:</strong>{' '}
-                    <span style={{ color: '#838b7d', textDecoration: change.old && String(change.old).length ? 'line-through' : 'none' }}>
-                      {formatDiffValue(change.old)}
-                    </span>
-                    {' ← '}
-                    <strong style={{ color: '#24521f' }}>{formatDiffValue(change.new)}</strong>
-                  </li>
+              <div className="ai-diff-list">
+                {pendingUpdate.items.map((item, idx) => (
+                  <div key={item.field} className={`ai-diff-row ${item.checked ? '' : 'is-unchecked'}`}>
+                    <label className="ai-diff-check">
+                      <input
+                        type="checkbox"
+                        checked={item.checked}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setPendingUpdate((prev) => ({
+                            ...prev,
+                            items: prev.items.map((it, i) => (i === idx ? { ...it, checked } : it)),
+                          }));
+                        }}
+                      />
+                      <span>{FIELD_LABELS[item.field] || item.field}</span>
+                      {formatDiffValue(item.old) !== '—' && (
+                        <small className="ai-diff-old">{formatDiffValue(item.old)}</small>
+                      )}
+                    </label>
+                    {item.field === 'sex' ? (
+                      <select
+                        aria-label={FIELD_LABELS[item.field] || item.field}
+                        value={item.value}
+                        disabled={!item.checked}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setPendingUpdate((prev) => ({
+                            ...prev,
+                            items: prev.items.map((it, i) => (i === idx ? { ...it, value } : it)),
+                          }));
+                        }}
+                      >
+                        <option value="U">לא ידוע (U)</option>
+                        <option value="M">זכר (M)</option>
+                        <option value="F">נקבה (F)</option>
+                      </select>
+                    ) : item.isArray ? (
+                      <textarea
+                        rows={2}
+                        aria-label={FIELD_LABELS[item.field] || item.field}
+                        value={item.value}
+                        disabled={!item.checked}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setPendingUpdate((prev) => ({
+                            ...prev,
+                            items: prev.items.map((it, i) => (i === idx ? { ...it, value } : it)),
+                          }));
+                        }}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        aria-label={FIELD_LABELS[item.field] || item.field}
+                        value={item.value}
+                        disabled={!item.checked}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setPendingUpdate((prev) => ({
+                            ...prev,
+                            items: prev.items.map((it, i) => (i === idx ? { ...it, value } : it)),
+                          }));
+                        }}
+                      />
+                    )}
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
 
@@ -975,7 +1066,7 @@ export function EditPersonAiModal({
                 type="button"
                 className="button button-primary"
                 onClick={handleConfirmPending}
-                disabled={busy}
+                disabled={busy || !pendingUpdate.items?.some((it) => it.checked)}
                 style={{ minHeight: 40 }}
               >
                 <Check size={17} />

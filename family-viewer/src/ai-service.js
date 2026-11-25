@@ -4,7 +4,12 @@
  * Chrome Prompt API (window.ai), and local browser model (Transformers.js ONNX/WASM).
  */
 
-import { validatePersonUpdates, formatToGedcomDate, cleanAiUpdates } from './gedcom-ai-editor.js';
+import {
+  validatePersonUpdates,
+  formatToGedcomDate,
+  cleanAiUpdates,
+  extractHebrewDateHints,
+} from './gedcom-ai-editor.js';
 import { isLocalAiAvailable, promptLocalAi, getLocalAiProgress } from './local-ai-provider.js';
 import { isOllamaAvailable, promptOllama, getOllamaModel } from './ollama-ai-provider.js';
 import {
@@ -97,11 +102,21 @@ export async function getActiveAiProvider() {
   };
 }
 
-/**
- * Builds the genealogy-expert prompt instructing the AI to output only valid JSON.
- */
-export function buildPrompt(person, freeText) {
-  const currentInfo = {
+function extractCurrentPersonFields(person = {}) {
+  const findEvent = tag => [...(person.events || [])].reverse().find(e => e.type === tag);
+  const findAttr = tag => (person.attributes || []).find(a => a.type === tag)?.value || '';
+  const resi = findEvent('RESI');
+  const buri = findEvent('BURI');
+  const immi = findEvent('IMMI');
+  const emig = findEvent('EMIG');
+  const natu = findEvent('NATU');
+  const barm = findEvent('BARM');
+  const basm = findEvent('BASM');
+  const bapm = findEvent('BAPM');
+  const grad = findEvent('GRAD');
+  const reti = findEvent('RETI');
+  const crem = findEvent('CREM');
+  return {
     id: person.id,
     givenName: person.given || '',
     surname: person.surname || '',
@@ -113,18 +128,67 @@ export function buildPrompt(person, freeText) {
     deathDate: person.death?.date || '',
     deathPlace: person.death?.place || '',
     deathCause: person.death?.cause || '',
+    burialDate: buri?.date || '',
+    burialPlace: buri?.place || '',
+    cremationDate: crem?.date || '',
+    cremationPlace: crem?.place || '',
+    immigrationDate: immi?.date || '',
+    immigrationPlace: immi?.place || '',
+    emigrationDate: emig?.date || '',
+    emigrationPlace: emig?.place || '',
+    naturalizationDate: natu?.date || '',
+    naturalizationPlace: natu?.place || '',
+    barMitzvahDate: barm?.date || '',
+    barMitzvahPlace: barm?.place || '',
+    batMitzvahDate: basm?.date || '',
+    batMitzvahPlace: basm?.place || '',
+    baptismDate: bapm?.date || '',
+    baptismPlace: bapm?.place || '',
+    graduationDate: grad?.date || '',
+    graduationPlace: grad?.place || '',
+    retirementDate: reti?.date || '',
+    retirementPlace: reti?.place || '',
+    residenceDate: resi?.date || '',
+    residencePlace: resi?.place || resi?.detail || '',
     occupation: person.occupation || '',
-    notes: person.notes || []
+    education: findAttr('EDUC'),
+    title: findAttr('TITL'),
+    religion: findAttr('RELI'),
+    nationality: findAttr('NATI'),
+    description: findAttr('DSCR'),
+    idNumber: findAttr('IDNO'),
+    notes: person.notes || [],
   };
+}
+
+/**
+ * Builds the genealogy-expert prompt instructing the AI to output only valid JSON.
+ */
+export function buildPrompt(person, freeText) {
+  const fullInfo = extractCurrentPersonFields(person);
+  // Keep prompt compact for small models: omit empty optional fields while always including core identity
+  const coreKeys = new Set(['id', 'givenName', 'surname', 'name', 'sex', 'birthDate', 'birthPlace', 'deathDate', 'deathPlace', 'occupation', 'notes']);
+  const currentInfo = {};
+  for (const [k, v] of Object.entries(fullInfo)) {
+    const nonEmpty = Array.isArray(v) ? v.length > 0 : Boolean(v);
+    if (coreKeys.has(k) || nonEmpty) currentInfo[k] = v;
+  }
+
+  const hebrewHints = extractHebrewDateHints(String(freeText || ''));
+  const hebrewHintBlock = hebrewHints.length
+    ? `\nHebrew calendar conversions for dates in the user text (use these EXACT Gregorian GEDCOM dates, do NOT guess):\n${hebrewHints.map(h => `- "${h.phrase}" => "${h.gedcom}"`).join('\n')}\n`
+    : '';
 
   return `You are a genealogy data assistant specializing in the GEDCOM 5.5 / 5.5.1 / 7 standard.
 Your task is to analyze user-provided free-text (which may be in Hebrew, English, or mixed) describing updates or new information for a SPECIFIC individual person in the family tree.
 
 CRITICAL RULES:
 1. You must ONLY update or add information for this specific person.
-2. Output MUST be ONLY a single valid JSON object, with NO surrounding explanation, NO markdown formatting (or within a single \`\`\`json codeblock).
-3. Dates should be standardized if possible (e.g., "15 MAY 1920", "1985", "OCT 1944", "ABT 1930").
-4. Allowed JSON fields (ONLY include fields that the user explicitly provided or updated):
+2. Output MUST be ONLY a single valid JSON object, with NO surrounding explanation, NO markdown formatting.
+3. ONLY include fields that are NEW or CHANGED by the user's text. NEVER repeat unchanged fields from Current person data (do NOT echo givenName, surname, or sex unless the user explicitly asked to change them).
+4. NEVER copy the user's sentence into "description" (which is ONLY for physical appearance like height or eye color) and do NOT duplicate structured facts into "notes".
+5. Dates should be standardized GEDCOM dates (e.g., "15 MAY 1920", "1985", "OCT 1944", "ABT 1930"). If Hebrew calendar conversions are listed below, use those exact Gregorian dates.
+6. Allowed JSON fields (ONLY include fields explicitly stated in the user's text):
    - "givenName": string (e.g. "אברהם")
    - "surname": string (e.g. "כהן")
    - "nickname": string (e.g. "אבי")
@@ -162,18 +226,22 @@ CRITICAL RULES:
    - "title": string (תואר, TITL, e.g. "הרב", "ד״ר", "פרופ'")
    - "religion": string (דת, RELI, e.g. "יהדות")
    - "nationality": string (לאום / אזרחות, NATI, e.g. "ישראלי")
-   - "description": string (תיאור פיזי, DSCR)
+   - "description": string (תיאור פיזי בלבד — גובה/עיניים/שיער, DSCR)
    - "idNumber": string (מספר תעודת זהות / זיהוי רשמי, IDNO)
-   - "notes": array of strings (e.g. ["עלה לארץ ב-1948"])
+   - "notes": array of strings (only extra biographical facts not covered above)
    - "source": string (מקור המידע, e.g. "ספר זיכרון משפחתי" or "עדות של דוד משה")
+
+Example:
+User's input text: "נולד ב-1920 בוורשה, היה נגר ונפטר בתש\"ח בירושלים"
+Output: {"birthDate":"1920","birthPlace":"וורשה","occupation":"נגר","deathDate":"1948","deathPlace":"ירושלים"}
 
 Current person data in tree:
 ${JSON.stringify(currentInfo, null, 2)}
-
+${hebrewHintBlock}
 User's input text to apply:
 "${String(freeText || '').trim()}"
 
-Return ONLY the JSON object with the updated fields.`;
+Return ONLY the minimal JSON object with the new or changed fields.`;
 }
 
 function normalizeAiText(value) {
@@ -305,22 +373,43 @@ export async function analyzePersonTextWithAi(
     console.log('[AI Editor] Parsed JSON from AI:', parsedJson);
   }
 
-  const { cleaned, dropped } = cleanAiUpdates(parsedJson);
-  if (devMode && dropped.length) console.warn('[AI Editor] Ignored empty/unknown fields:', dropped);
+  const currentPerson = extractCurrentPersonFields(person);
+  const { cleaned, dropped } = cleanAiUpdates(parsedJson, { currentPerson, freeText });
+  if (devMode && dropped.length) console.warn('[AI Editor] Ignored empty/unchanged/unknown fields:', dropped);
   parsedJson = cleaned;
 
-  const validation = validatePersonUpdates(parsedJson, {
-    givenName: person.given,
-    surname: person.surname,
-    sex: person.sex,
-    birthDate: person.birth?.date,
-    birthPlace: person.birth?.place,
-    deathDate: person.death?.date,
-    deathPlace: person.death?.place,
-    deathCause: person.death?.cause,
-    occupation: person.occupation,
-    notes: person.notes,
-  });
+  // Deterministic safeguard: if the user wrote a Hebrew calendar date/year (e.g. תשי"ב -> 1952)
+  // and a small model still guessed a wrong Gregorian year (e.g. 1944) not present in freeText,
+  // replace that guessed date with the exact deterministic Hebrew conversion.
+  const hebrewHints = extractHebrewDateHints(String(freeText || ''));
+  if (hebrewHints.length && parsedJson && typeof parsedJson === 'object') {
+    const dateKeys = Object.keys(parsedJson).filter(k => k.endsWith('Date') && typeof parsedJson[k] === 'string');
+    const explicitYearsInText = new Set([...String(freeText).matchAll(/\b(\d{3,4})\b/g)].map(m => m[1]));
+    const formattedDates = new Map(dateKeys.map(k => [k, formatToGedcomDate(parsedJson[k])]));
+    const usedHints = new Set();
+    for (const val of formattedDates.values()) {
+      for (const h of hebrewHints) {
+        if (val === h.gedcom) usedHints.add(h.gedcom);
+      }
+    }
+    const unusedHints = hebrewHints.filter(h => !usedHints.has(h.gedcom));
+    if (unusedHints.length) {
+      let hintIdx = 0;
+      for (const key of dateKeys) {
+        if (hintIdx >= unusedHints.length) break;
+        const formatted = formattedDates.get(key) || '';
+        const yearMatch = formatted.match(/\b(\d{3,4})\b/);
+        const year = yearMatch ? yearMatch[1] : '';
+        // If this date's year was NOT explicitly typed in freeText and doesn't match any valid Hebrew hint,
+        // it is almost certainly a hallucinated Hebrew->Gregorian conversion.
+        if (year && !explicitYearsInText.has(year) && !usedHints.has(formatted)) {
+          parsedJson[key] = unusedHints[hintIdx++].gedcom;
+        }
+      }
+    }
+  }
+
+  const validation = validatePersonUpdates(parsedJson, currentPerson);
 
   if (devMode) {
     console.log('[AI Editor] Validation result:', validation.valid ? 'VALID' : 'INVALID');

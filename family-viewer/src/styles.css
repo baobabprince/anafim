@@ -500,3 +500,14 @@
 .manual-edit-field label{font-size:11px;font-weight:600;color:#3d533d}
 .manual-edit-field input,.manual-edit-field select,.manual-edit-field textarea{width:100%;padding:8px 10px;border-radius:8px;border:1px solid #cbd7c4;background:#fff;color:#29392f;font-size:13px;line-height:1.45}
 .manual-edit-field input:focus,.manual-edit-field select:focus,.manual-edit-field textarea:focus{outline:2px solid #8aa67d;outline-offset:1px}
+.ai-diff-preview{margin-bottom:14px;padding:13px 14px;border-radius:12px;background:#f4f9ee;border:1px solid #c6dab6}
+.ai-diff-heading{display:block;font-size:13px;font-weight:600;color:#2c4829;margin-bottom:10px}
+.ai-diff-list{display:flex;flex-direction:column;gap:8px}
+.ai-diff-row{display:flex;flex-direction:column;gap:5px;padding:9px 10px;border-radius:9px;background:#fff;border:1px solid #dce6d2;transition:opacity .15s}
+.ai-diff-row.is-unchecked{opacity:.52;background:#f8faf5}
+.ai-diff-check{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#2f4b2e;cursor:pointer;flex-wrap:wrap}
+.ai-diff-check input[type=checkbox]{width:17px;height:17px;accent-color:#4b6c3e;flex-shrink:0}
+.ai-diff-old{font-size:11px;font-weight:400;color:#7b8574;text-decoration:line-through;margin-inline-start:auto}
+.ai-diff-row input[type=text],.ai-diff-row select,.ai-diff-row textarea{width:100%;padding:7px 10px;border-radius:8px;border:1px solid #cbd7c1;background:#fcfdf9;color:#223a24;font-size:14px;line-height:1.45}
+.ai-diff-row input[type=text]:focus,.ai-diff-row select:focus,.ai-diff-row textarea:focus{outline:2px solid #8aa67d;outline-offset:1px;background:#fff}
+@media(max-width:520px){.ai-diff-row input[type=text],.ai-diff-row select,.ai-diff-row textarea{font-size:16px;min-height:42px}}
