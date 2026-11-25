@@ -77,6 +77,10 @@ test('production CSP, referrer policy, and template interpolation guards stay in
   const viteConfig = fs.readFileSync(path.join(rootDir, 'vite.config.js'), 'utf8');
   assert.ok(viteConfig.includes('Content-Security-Policy'));
   assert.ok(viteConfig.includes('generativelanguage.googleapis.com'));
+  assert.ok(viteConfig.includes('https://*.hf.co'), 'Production CSP must allow Hugging Face CDN/Xet subdomains (*.hf.co)');
+
+  const headersFile = fs.readFileSync(path.join(rootDir, 'public', '_headers'), 'utf8');
+  assert.ok(headersFile.includes('https://*.hf.co'), 'public/_headers CSP must allow Hugging Face CDN/Xet subdomains (*.hf.co)');
 
   const cloudAccess = fs.readFileSync(path.join(rootDir, 'src', 'CloudAccess.jsx'), 'utf8');
   assert.ok(!cloudAccess.includes("ענפים — {t('cloud.recovery')}"), 'CloudAccess should interpolate ${t(...)}');

@@ -770,7 +770,7 @@ export function EditPersonAiModal({
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#395332' }}>
                 <LoaderCircle className="spin" size={16} />
                 <strong>
-                  {progressInfo?.status === 'loading' && typeof progressInfo.progress === 'number'
+                  {['loading', 'initiate', 'download', 'progress'].includes(progressInfo?.status) && typeof progressInfo.progress === 'number'
                     ? `טוען מודל מקומי: ${progressInfo.progress}%`
                     : activeProvider?.id === 'gemini'
                     ? 'מעבד נתונים בעזרת Google Gemini...'
@@ -780,7 +780,7 @@ export function EditPersonAiModal({
                 </strong>
               </div>
 
-              {progressInfo?.status === 'loading' && typeof progressInfo.progress === 'number' && (
+              {['loading', 'initiate', 'download', 'progress'].includes(progressInfo?.status) && typeof progressInfo.progress === 'number' && (
                 <div style={{ marginTop: 8 }}>
                   <div
                     style={{

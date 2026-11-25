@@ -404,8 +404,11 @@ export function updatePersonRecord(rawBlock, updates, personId) {
   // Update NAME / GIVN / SURN
   if (updates.givenName !== undefined || updates.surname !== undefined || updates.nickname !== undefined) {
     let nameNode = subNodes.find(n => n.tag === 'NAME');
-    const existingGiven = nameNode?.children.find(c => c.tag === 'GIVN')?.val || '';
-    const existingSurn = nameNode?.children.find(c => c.tag === 'SURN')?.val || '';
+    const parsedName = (nameNode?.val || '').match(/^([^/]*)\/([^/]*)\//);
+    const fallbackGiven = parsedName ? parsedName[1].trim() : (nameNode?.val || '').replace(/\//g, '').trim();
+    const fallbackSurn = parsedName ? parsedName[2].trim() : '';
+    const existingGiven = nameNode?.children.find(c => c.tag === 'GIVN')?.val || fallbackGiven;
+    const existingSurn = nameNode?.children.find(c => c.tag === 'SURN')?.val || fallbackSurn;
     const existingNick = nameNode?.children.find(c => c.tag === 'NICK')?.val || '';
 
     const newGiven = (updates.givenName !== undefined ? sanitizeGedcomInline(updates.givenName) : existingGiven).replace(/\//g, '').trim();

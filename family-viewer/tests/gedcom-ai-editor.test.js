@@ -489,3 +489,21 @@ test('cleanAiUpdates drops empty values and unknown keys but keeps real data', a
   assert.deepEqual(dropped.sort(), ['birthDate', 'birthPlace', 'name', 'notes']);
   assert.equal(validatePersonUpdates(cleaned, {}).valid, true);
 });
+
+test('updating only givenName or nickname preserves surname when GIVN/SURN subtags are absent', () => {
+  const sampleGed = `0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME משה /כהן/
+1 SEX M
+0 TRLR`;
+
+  const updatedGiven = applyPersonUpdatesToGedcom(sampleGed, '@I1@', { givenName: 'משה דוד' });
+  assert.ok(updatedGiven.includes('1 NAME משה דוד /כהן/'));
+  assert.ok(updatedGiven.includes('2 GIVN משה דוד'));
+  assert.ok(updatedGiven.includes('2 SURN כהן'));
+
+  const updatedNick = applyPersonUpdatesToGedcom(sampleGed, '@I1@', { nickname: 'מוישי' });
+  assert.ok(updatedNick.includes('1 NAME משה /כהן/'));
+  assert.ok(updatedNick.includes('2 NICK מוישי'));
+});

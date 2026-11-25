@@ -7,7 +7,7 @@ const PRODUCTION_CSP = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com https://huggingface.co https://*.huggingface.co https://cdn-lfs.hf.co https://cdn-lfs-us-1.hf.co https://cdn-lfs.huggingface.co http://localhost:11434 http://127.0.0.1:11434",
+  "connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com https://huggingface.co https://*.huggingface.co https://*.hf.co http://localhost:11434 http://127.0.0.1:11434",
   "worker-src 'self' blob:",
   "base-uri 'none'",
   "object-src 'none'",
