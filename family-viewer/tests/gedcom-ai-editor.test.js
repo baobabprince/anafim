@@ -595,3 +595,93 @@ test('isOllamaAvailable does not probe localhost on public HTTPS hosts unless ex
     globalThis.fetch = originalFetch;
   }
 });
+
+test('OpenRouter API key, model storage, request contract, and provider selection work cleanly', async () => {
+  const {
+    getOpenRouterApiKey,
+    setOpenRouterApiKey,
+    removeOpenRouterApiKey,
+    isOpenRouterAvailable,
+    getOpenRouterModel,
+    setOpenRouterModel,
+    promptOpenRouter,
+    setPreferredCloudProvider,
+  } = await import('../src/ai-service.js');
+
+  const store = {};
+  globalThis.window = {
+    location: { hostname: 'baobabprince.github.io' },
+    localStorage: {
+      getItem: (k) => (k in store ? store[k] : null),
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; },
+    },
+  };
+
+  assert.equal(isOpenRouterAvailable(), false);
+  assert.equal(getOpenRouterModel(), 'openrouter/free');
+  setOpenRouterApiKey('sk-or-v1-test-key');
+  setOpenRouterModel('openai/gpt-4o-mini');
+  setPreferredCloudProvider('openrouter');
+  assert.equal(isOpenRouterAvailable(), true);
+  assert.equal(getOpenRouterApiKey(), 'sk-or-v1-test-key');
+  assert.equal(getOpenRouterModel(), 'openai/gpt-4o-mini');
+
+  const active = await getActiveAiProvider();
+  assert.equal(active.id, 'openrouter');
+  assert.ok(active.label.includes('openai/gpt-4o-mini'));
+
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, headers: options.headers, body: JSON.parse(options.body) });
+    // First call simulates a model rejecting response_format: json_object -> must retry without it
+    if (calls.length === 1) {
+      return {
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        json: async () => ({ error: { message: 'response_format json_object is not supported' } }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: '<think>reasoning</think>{"birthPlace": "חיפה", "occupation": "מהנדס"}',
+            },
+          },
+        ],
+      }),
+    };
+  };
+
+  try {
+    const person = { id: '@I3@', given: 'דני', surname: 'כהן', sex: 'M' };
+    const result = await analyzePersonTextWithAi(person, 'נולד בחיפה והיה מהנדס');
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].url, 'https://openrouter.ai/api/v1/chat/completions');
+    assert.equal(calls[0].headers.Authorization, 'Bearer sk-or-v1-test-key');
+    assert.equal(calls[0].body.model, 'openai/gpt-4o-mini');
+    assert.deepEqual(calls[0].body.response_format, { type: 'json_object' });
+    assert.equal(calls[1].body.response_format, undefined);
+    assert.equal(result.valid, true);
+    assert.equal(result.provider, 'openrouter');
+    assert.deepEqual(result.sanitized, { birthPlace: 'חיפה', occupation: 'מהנדס' });
+
+    // Direct promptOpenRouter 402 surfaces friendly credit message
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 402,
+      statusText: 'Payment Required',
+      json: async () => ({ error: { message: 'Insufficient credits' } }),
+    });
+    await assert.rejects(() => promptOpenRouter('test'), /402/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    removeOpenRouterApiKey();
+    assert.equal(isOpenRouterAvailable(), false);
+  }
+});

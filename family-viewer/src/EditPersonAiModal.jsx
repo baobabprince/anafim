@@ -23,6 +23,14 @@ import {
   setGeminiApiKey,
   removeGeminiApiKey,
   testGeminiApiKey,
+  OPENROUTER_PRESET_MODELS,
+  getOpenRouterApiKey,
+  setOpenRouterApiKey,
+  removeOpenRouterApiKey,
+  getOpenRouterModel,
+  setOpenRouterModel as saveOpenRouterModel,
+  testOpenRouterApiKey,
+  setPreferredCloudProvider,
 } from './ai-service.js';
 import { applyPersonUpdatesToGedcom, validatePersonUpdates } from './gedcom-ai-editor.js';
 
@@ -109,11 +117,15 @@ export function EditPersonAiModal({
   const [activeProvider, setActiveProvider] = useState(null);
   const [progressInfo, setProgressInfo] = useState(null);
 
-  // API Key management
+  // API Key management (OpenRouter + Gemini)
+  const [keyTab, setKeyTab] = useState('openrouter');
   const [apiKey, setApiKey] = useState('');
+  const [openRouterKey, setOpenRouterKey] = useState('');
+  const [openRouterModel, setOpenRouterModel] = useState(OPENROUTER_PRESET_MODELS[0].id);
+  const [customModelMode, setCustomModelMode] = useState(false);
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [showKeyText, setShowKeyText] = useState(false);
-  const [keyStatus, setKeyStatus] = useState(null); // { type: 'success' | 'error', message: string }
+  const [keyStatus, setKeyStatus] = useState(null); // { type: 'success' | 'error' | 'info', message: string }
   const [testingKey, setTestingKey] = useState(false);
 
   useEffect(() => {
@@ -142,13 +154,23 @@ export function EditPersonAiModal({
         source: '',
       });
 
-      const savedKey = getGeminiApiKey();
-      setApiKey(savedKey);
+      const savedGeminiKey = getGeminiApiKey();
+      const savedOrKey = getOpenRouterApiKey();
+      const savedOrModel = getOpenRouterModel();
+      setApiKey(savedGeminiKey);
+      setOpenRouterKey(savedOrKey);
+      setOpenRouterModel(savedOrModel);
+      setCustomModelMode(!OPENROUTER_PRESET_MODELS.some((m) => m.id === savedOrModel));
 
       getActiveAiProvider().then((provider) => {
         setActiveProvider(provider);
+        if (provider.id === 'gemini') setKeyTab('gemini');
+        else if (provider.id === 'openrouter') setKeyTab('openrouter');
+        else if (savedGeminiKey && !savedOrKey) setKeyTab('gemini');
+        else setKeyTab('openrouter');
+
         // Automatically open key settings if no key and not on Chrome with window.ai
-        if (!savedKey && provider.id === 'local') {
+        if (!savedGeminiKey && !savedOrKey && provider.id === 'local') {
           setShowKeyInput(true);
         }
       });
@@ -174,10 +196,11 @@ export function EditPersonAiModal({
 
   const handleSaveKey = () => {
     setGeminiApiKey(apiKey);
+    if (apiKey.trim()) setPreferredCloudProvider('gemini');
     refreshProvider();
     setKeyStatus({
       type: 'success',
-      message: apiKey.trim() ? 'המפתח נשמר בהצלחה במכשיר זה.' : 'המפתח הוסר.',
+      message: apiKey.trim() ? 'מפתח Gemini נשמר בהצלחה במכשיר זה.' : 'המפתח הוסר.',
     });
   };
 
@@ -187,7 +210,7 @@ export function EditPersonAiModal({
     refreshProvider();
     setKeyStatus({
       type: 'info',
-      message: 'המפתח הוסר ממכשיר זה.',
+      message: 'מפתח Gemini הוסר ממכשיר זה.',
     });
   };
 
@@ -202,8 +225,55 @@ export function EditPersonAiModal({
       const res = await testGeminiApiKey(apiKey.trim());
       if (res.ok) {
         setGeminiApiKey(apiKey);
+        setPreferredCloudProvider('gemini');
         refreshProvider();
-        setKeyStatus({ type: 'success', message: '✓ המפתח תקין ומוכן לשימוש!' });
+        setKeyStatus({ type: 'success', message: '✓ מפתח Gemini תקין ומוכן לשימוש!' });
+      } else {
+        setKeyStatus({ type: 'error', message: `שגיאה באימות המפתח: ${res.error}` });
+      }
+    } catch (err) {
+      setKeyStatus({ type: 'error', message: `שגיאה: ${err.message}` });
+    } finally {
+      setTestingKey(false);
+    }
+  };
+
+  const handleSaveOpenRouterKey = () => {
+    setOpenRouterApiKey(openRouterKey);
+    saveOpenRouterModel(openRouterModel);
+    if (openRouterKey.trim()) setPreferredCloudProvider('openrouter');
+    refreshProvider();
+    setKeyStatus({
+      type: 'success',
+      message: openRouterKey.trim() ? 'מפתח OpenRouter והמודל נשמרו בהצלחה במכשיר זה.' : 'מפתח OpenRouter הוסר.',
+    });
+  };
+
+  const handleRemoveOpenRouterKey = () => {
+    setOpenRouterKey('');
+    removeOpenRouterApiKey();
+    refreshProvider();
+    setKeyStatus({
+      type: 'info',
+      message: 'מפתח OpenRouter הוסר ממכשיר זה.',
+    });
+  };
+
+  const handleTestOpenRouterKey = async () => {
+    if (!openRouterKey.trim()) {
+      setKeyStatus({ type: 'error', message: 'אנא הזן מפתח OpenRouter API לבדיקה.' });
+      return;
+    }
+    setTestingKey(true);
+    setKeyStatus(null);
+    try {
+      const res = await testOpenRouterApiKey(openRouterKey.trim(), { model: openRouterModel.trim() });
+      if (res.ok) {
+        setOpenRouterApiKey(openRouterKey);
+        saveOpenRouterModel(openRouterModel);
+        setPreferredCloudProvider('openrouter');
+        refreshProvider();
+        setKeyStatus({ type: 'success', message: '✓ מפתח OpenRouter תקין ומוכן לשימוש!' });
       } else {
         setKeyStatus({ type: 'error', message: `שגיאה באימות המפתח: ${res.error}` });
       }
@@ -561,7 +631,7 @@ export function EditPersonAiModal({
             }}
           >
             <Key size={12} />
-            <span>{showKeyInput ? 'הסתר הגדרות' : 'מפתח Gemini / הגדרות'}</span>
+            <span>{showKeyInput ? 'הסתר הגדרות' : 'מפתח API (OpenRouter / Gemini)'}</span>
           </button>
         </div>
 
@@ -578,122 +648,371 @@ export function EditPersonAiModal({
             }}
           >
             <div
+              role="tablist"
+              aria-label="ספק API"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 6,
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 6,
+                padding: 3,
+                borderRadius: 8,
+                background: '#f2ece2',
+                marginBottom: 10,
               }}
             >
-              <strong style={{ color: '#7a4e28', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <Key size={14} />
-                <span>מפתח Google Gemini (מומלץ לנייד, Safari ו-Firefox)</span>
-              </strong>
-            </div>
-
-            <p style={{ color: '#685949', fontSize: 11, lineHeight: 1.5, margin: '4px 0 8px' }}>
-              חינמי, מהיר (<span dir="ltr">1-2</span> שניות), איכותי ביותר בעברית וללא הורדת קובץ מודל כבד (
-              <span dir="ltr">120MB</span>). המפתח נשמר במכשירך בלבד.
-            </p>
-
-            <div style={{ marginBottom: 8 }}>
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                role="tab"
+                aria-selected={keyTab === 'openrouter'}
+                disabled={busy || testingKey}
+                onClick={() => { setKeyTab('openrouter'); setKeyStatus(null); }}
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  fontSize: 11,
-                  color: '#904e1c',
+                  minHeight: 32,
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  fontSize: 12,
                   fontWeight: 600,
-                  textDecoration: 'none',
+                  background: keyTab === 'openrouter' ? '#fff' : 'transparent',
+                  color: keyTab === 'openrouter' ? '#2c472b' : '#6f6253',
+                  boxShadow: keyTab === 'openrouter' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                 }}
               >
-                <span>קבלת מפתח חינם ב-Google AI Studio (ללא צורך באשראי)</span>
-                <ExternalLink size={11} />
-              </a>
+                OpenRouter{openRouterKey.trim() ? ' ✓' : ''}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={keyTab === 'gemini'}
+                disabled={busy || testingKey}
+                onClick={() => { setKeyTab('gemini'); setKeyStatus(null); }}
+                style={{
+                  minHeight: 32,
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: keyTab === 'gemini' ? '#fff' : 'transparent',
+                  color: keyTab === 'gemini' ? '#2c472b' : '#6f6253',
+                  boxShadow: keyTab === 'gemini' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                }}
+              >
+                Google Gemini{apiKey.trim() ? ' ✓' : ''}
+              </button>
             </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleTestKey();
-              }}
-              autoComplete="off"
-              style={{ display: 'flex', gap: 6, marginBottom: 8 }}
-            >
-              <div style={{ position: 'relative', flex: 1 }}>
-                <input
-                  type={showKeyText ? 'text' : 'password'}
-                  name="gemini-api-key"
+            {keyTab === 'openrouter' ? (
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 6,
+                  }}
+                >
+                  <strong style={{ color: '#7a4e28', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Key size={14} />
+                    <span>מפתח OpenRouter (עובד עם Gemini, GPT, Claude ומודלים חינמיים)</span>
+                  </strong>
+                </div>
+
+                <p style={{ color: '#685949', fontSize: 11, lineHeight: 1.5, margin: '4px 0 8px' }}>
+                  הזן מפתח OpenRouter ובחר מודל. הבקשות נשלחות ישירות מהדפדפן אל OpenRouter והמפתח נשמר במכשירך בלבד.
+                </p>
+
+                <div style={{ marginBottom: 8 }}>
+                  <a
+                    href="https://openrouter.ai/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      fontSize: 11,
+                      color: '#904e1c',
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                    }}
+                  >
+                    <span>יצירת מפתח API ב-openrouter.ai</span>
+                    <ExternalLink size={11} />
+                  </a>
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleTestOpenRouterKey();
+                  }}
                   autoComplete="off"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="הדבק מפתח כאן: AIzaSy..."
-                  dir="ltr"
-                  disabled={busy || testingKey}
-                  style={{
-                    width: '100%',
-                    padding: '7px 32px 7px 10px',
-                    borderRadius: 6,
-                    border: '1px solid #cfc2b2',
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowKeyText((v) => !v)}
-                  style={{
-                    position: 'absolute',
-                    right: 6,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: '#8b7c6c',
-                    padding: 2,
-                  }}
-                  aria-label={showKeyText ? 'הסתר מפתח' : 'הצג מפתח'}
                 >
-                  {showKeyText ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                    <div style={{ position: 'relative', flex: '1 1 180px' }}>
+                      <input
+                        type={showKeyText ? 'text' : 'password'}
+                        name="openrouter-api-key"
+                        aria-label="מפתח OpenRouter API"
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        value={openRouterKey}
+                        onChange={(e) => setOpenRouterKey(e.target.value)}
+                        placeholder="הדבק מפתח כאן: sk-or-v1-..."
+                        dir="ltr"
+                        disabled={busy || testingKey}
+                        style={{
+                          width: '100%',
+                          padding: '7px 32px 7px 10px',
+                          borderRadius: 6,
+                          border: '1px solid #cfc2b2',
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowKeyText((v) => !v)}
+                        style={{
+                          position: 'absolute',
+                          right: 6,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          color: '#8b7c6c',
+                          padding: 2,
+                        }}
+                        aria-label={showKeyText ? 'הסתר מפתח' : 'הצג מפתח'}
+                      >
+                        {showKeyText ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
 
-              <button
-                type="button"
-                className="button button-white button-small"
-                onClick={handleTestKey}
-                disabled={busy || testingKey || !apiKey.trim()}
-                style={{ padding: '4px 9px', fontSize: 11 }}
-              >
-                {testingKey ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}
-                <span>בדיקה</span>
-              </button>
+                    <button
+                      type="button"
+                      className="button button-white button-small"
+                      onClick={handleTestOpenRouterKey}
+                      disabled={busy || testingKey || !openRouterKey.trim()}
+                      style={{ padding: '4px 9px', fontSize: 11 }}
+                    >
+                      {testingKey ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}
+                      <span>בדיקה</span>
+                    </button>
 
-              <button
-                type="button"
-                className="button button-primary button-small"
-                onClick={handleSaveKey}
-                disabled={busy || testingKey}
-                style={{ padding: '4px 10px', fontSize: 11 }}
-              >
-                שמור
-              </button>
+                    <button
+                      type="button"
+                      className="button button-primary button-small"
+                      onClick={handleSaveOpenRouterKey}
+                      disabled={busy || testingKey}
+                      style={{ padding: '4px 10px', fontSize: 11 }}
+                    >
+                      שמור
+                    </button>
 
-              {apiKey && (
-                <button
-                  type="button"
-                  className="button button-white button-small"
-                  onClick={handleRemoveKey}
-                  disabled={busy || testingKey}
-                  title="מחק מפתח"
-                  style={{ padding: '4px 8px', fontSize: 11, color: '#973d2a' }}
+                    {openRouterKey && (
+                      <button
+                        type="button"
+                        className="button button-white button-small"
+                        onClick={handleRemoveOpenRouterKey}
+                        disabled={busy || testingKey}
+                        title="מחק מפתח"
+                        style={{ padding: '4px 8px', fontSize: 11, color: '#973d2a' }}
+                      >
+                        הסר
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6 }}>
+                    <label
+                      htmlFor="openrouter-model-select"
+                      style={{ fontSize: 11, fontWeight: 600, color: '#5c5042' }}
+                    >
+                      מודל ב-OpenRouter:
+                    </label>
+                    <select
+                      id="openrouter-model-select"
+                      value={customModelMode ? '__custom__' : openRouterModel}
+                      disabled={busy || testingKey}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '__custom__') {
+                          setCustomModelMode(true);
+                        } else {
+                          setCustomModelMode(false);
+                          setOpenRouterModel(val);
+                          saveOpenRouterModel(val);
+                          if (openRouterKey.trim()) {
+                            refreshProvider();
+                          }
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '7px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #cfc2b2',
+                        background: '#fff',
+                        fontSize: 12,
+                        color: '#2f3d32',
+                      }}
+                    >
+                      {OPENROUTER_PRESET_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                      <option value="__custom__">מודל מותאם אישית…</option>
+                    </select>
+                    {customModelMode && (
+                      <input
+                        type="text"
+                        aria-label="מזהה מודל OpenRouter מותאם אישית"
+                        dir="ltr"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        value={openRouterModel}
+                        onChange={(e) => setOpenRouterModel(e.target.value)}
+                        placeholder="לדוגמה: google/gemini-2.5-flash"
+                        disabled={busy || testingKey}
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          borderRadius: 6,
+                          border: '1px solid #cfc2b2',
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                        }}
+                      />
+                    )}
+                  </div>
+                </form>
+              </>
+            ) : (
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 6,
+                  }}
                 >
-                  הסר
-                </button>
-              )}
-            </form>
+                  <strong style={{ color: '#7a4e28', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Key size={14} />
+                    <span>מפתח Google Gemini (מומלץ לנייד, Safari ו-Firefox)</span>
+                  </strong>
+                </div>
+
+                <p style={{ color: '#685949', fontSize: 11, lineHeight: 1.5, margin: '4px 0 8px' }}>
+                  חינמי, מהיר (<span dir="ltr">1-2</span> שניות), איכותי ביותר בעברית וללא הורדת קובץ מודל כבד. המפתח נשמר במכשירך בלבד.
+                </p>
+
+                <div style={{ marginBottom: 8 }}>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      fontSize: 11,
+                      color: '#904e1c',
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                    }}
+                  >
+                    <span>קבלת מפתח חינם ב-Google AI Studio (ללא צורך באשראי)</span>
+                    <ExternalLink size={11} />
+                  </a>
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleTestKey();
+                  }}
+                  autoComplete="off"
+                  style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}
+                >
+                  <div style={{ position: 'relative', flex: '1 1 180px' }}>
+                    <input
+                      type={showKeyText ? 'text' : 'password'}
+                      name="gemini-api-key"
+                      aria-label="מפתח Google Gemini API"
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="הדבק מפתח כאן: AIzaSy..."
+                      dir="ltr"
+                      disabled={busy || testingKey}
+                      style={{
+                        width: '100%',
+                        padding: '7px 32px 7px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #cfc2b2',
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKeyText((v) => !v)}
+                      style={{
+                        position: 'absolute',
+                        right: 6,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: '#8b7c6c',
+                        padding: 2,
+                      }}
+                      aria-label={showKeyText ? 'הסתר מפתח' : 'הצג מפתח'}
+                    >
+                      {showKeyText ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="button button-white button-small"
+                    onClick={handleTestKey}
+                    disabled={busy || testingKey || !apiKey.trim()}
+                    style={{ padding: '4px 9px', fontSize: 11 }}
+                  >
+                    {testingKey ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}
+                    <span>בדיקה</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="button button-primary button-small"
+                    onClick={handleSaveKey}
+                    disabled={busy || testingKey}
+                    style={{ padding: '4px 10px', fontSize: 11 }}
+                  >
+                    שמור
+                  </button>
+
+                  {apiKey && (
+                    <button
+                      type="button"
+                      className="button button-white button-small"
+                      onClick={handleRemoveKey}
+                      disabled={busy || testingKey}
+                      title="מחק מפתח"
+                      style={{ padding: '4px 8px', fontSize: 11, color: '#973d2a' }}
+                    >
+                      הסר
+                    </button>
+                  )}
+                </form>
+              </>
+            )}
 
             {keyStatus && (
               <div
@@ -759,9 +1078,11 @@ export function EditPersonAiModal({
             />
             <span style={{ fontSize: 11, color: '#687b5a', display: 'block', marginTop: 4 }}>
               ה-AI ינתח את הטקסט, יציג תצוגה מקדימה של השינויים לאישור (אפשר לסמן או לערוך כל שדה), ויעדכן רק את הרשומה של אדם זה.
-              {activeProvider?.isCloud
+              {activeProvider?.id === 'openrouter'
+                ? ' שים לב: במצב OpenRouter פרטי האדם והטקסט שתזין נשלחים ל-OpenRouter לעיבוד.'
+                : activeProvider?.isCloud
                 ? ' שים לב: במצב Google Gemini פרטי האדם והטקסט שתזין נשלחים לשרתי Google לעיבוד.'
-                : ' במובייל עדיף להזין מפתח Gemini או להשתמש ב-Chrome במחשב עם AI מובנה.'}
+                : ' במובייל עדיף להזין מפתח OpenRouter או Gemini, או להשתמש ב-Chrome במחשב עם AI מובנה.'}
             </span>
           </div>
 
@@ -863,6 +1184,8 @@ export function EditPersonAiModal({
                 <strong>
                   {['loading', 'initiate', 'download', 'progress'].includes(progressInfo?.status) && typeof progressInfo.progress === 'number'
                     ? `טוען מודל מקומי: ${progressInfo.progress}%`
+                    : activeProvider?.id === 'openrouter'
+                    ? 'מעבד נתונים בעזרת OpenRouter...'
                     : activeProvider?.id === 'gemini'
                     ? 'מעבד נתונים בעזרת Google Gemini...'
                     : activeProvider?.id === 'window.ai'
@@ -961,7 +1284,7 @@ export function EditPersonAiModal({
                 <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 1 }} />
                 <div style={{ whiteSpace: 'pre-wrap' }}>{error}</div>
               </div>
-              {!apiKey && (
+              {!apiKey && !openRouterKey && (
                 <div style={{ marginTop: 8, textAlign: 'left' }}>
                   <button
                     type="button"
@@ -977,7 +1300,7 @@ export function EditPersonAiModal({
                       padding: 0,
                     }}
                   >
-                    הזן מפתח Gemini חינמי למעקף שגיאות ↗
+                    הזן מפתח OpenRouter או Gemini ↗
                   </button>
                 </div>
               )}

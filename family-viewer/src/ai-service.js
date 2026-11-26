@@ -20,6 +20,58 @@ import {
   testGeminiApiKey,
   promptGemini,
 } from './gemini-ai-provider.js';
+import {
+  OPENROUTER_PRESET_MODELS,
+  getOpenRouterApiKey,
+  setOpenRouterApiKey,
+  removeOpenRouterApiKey,
+  isOpenRouterAvailable,
+  getOpenRouterModel,
+  setOpenRouterModel,
+  testOpenRouterApiKey,
+  promptOpenRouter,
+} from './openrouter-ai-provider.js';
+
+const PREFERRED_CLOUD_KEY = 'anafim_preferred_ai_provider';
+
+export function getPreferredCloudProvider() {
+  try {
+    const storage =
+      (typeof window !== 'undefined' && window.localStorage) ||
+      (typeof localStorage !== 'undefined' && localStorage) ||
+      null;
+    const val = (storage?.getItem(PREFERRED_CLOUD_KEY) || '').trim();
+    return val === 'openrouter' || val === 'gemini' ? val : '';
+  } catch {
+    return '';
+  }
+}
+
+export function setPreferredCloudProvider(providerId) {
+  try {
+    const storage =
+      (typeof window !== 'undefined' && window.localStorage) ||
+      (typeof localStorage !== 'undefined' && localStorage) ||
+      null;
+    if (!storage) return;
+    if (providerId === 'openrouter' || providerId === 'gemini') {
+      storage.setItem(PREFERRED_CLOUD_KEY, providerId);
+    } else {
+      storage.removeItem(PREFERRED_CLOUD_KEY);
+    }
+  } catch {}
+}
+
+function resolveConfiguredCloudProvider() {
+  const hasOpenRouter = isOpenRouterAvailable();
+  const hasGemini = isGeminiAvailable();
+  if (hasOpenRouter && hasGemini) {
+    return getPreferredCloudProvider() === 'gemini' ? 'gemini' : 'openrouter';
+  }
+  if (hasOpenRouter) return 'openrouter';
+  if (hasGemini) return 'gemini';
+  return null;
+}
 
 export {
   getLocalAiProgress,
@@ -29,6 +81,15 @@ export {
   isGeminiAvailable,
   testGeminiApiKey,
   promptGemini,
+  OPENROUTER_PRESET_MODELS,
+  getOpenRouterApiKey,
+  setOpenRouterApiKey,
+  removeOpenRouterApiKey,
+  isOpenRouterAvailable,
+  getOpenRouterModel,
+  setOpenRouterModel,
+  testOpenRouterApiKey,
+  promptOpenRouter,
 };
 
 /**
@@ -69,11 +130,21 @@ export async function getActiveAiProvider() {
     };
   }
 
-  const hasGemini = isGeminiAvailable();
+  const cloudProvider = resolveConfiguredCloudProvider();
   const hasWindowAi = await isWindowAiAvailable();
-  const hasLocal = await isLocalAiAvailable();
+  await isLocalAiAvailable();
 
-  if (hasGemini) {
+  if (cloudProvider === 'openrouter') {
+    return {
+      id: 'openrouter',
+      label: `OpenRouter (${getOpenRouterModel()})`,
+      badge: 'ענן · OpenRouter',
+      isCloud: true,
+      hasKey: true,
+    };
+  }
+
+  if (cloudProvider === 'gemini') {
     return {
       id: 'gemini',
       label: 'Google Gemini',
@@ -279,14 +350,21 @@ export async function analyzePersonTextWithAi(
   let usedProvider = provider || null;
 
   try {
+    const cloudProvider = resolveConfiguredCloudProvider();
     // 0. Ollama on this machine — preferred whenever it is running
     if (provider === 'ollama' || (!provider && (await isOllamaAvailable()))) {
       usedProvider = 'ollama';
       console.log('[AI Editor] Using local Ollama');
       rawResponse = await promptOllama(prompt);
     }
-    // 1. Explicit or configured Gemini API
-    else if (provider === 'gemini' || (!provider && isGeminiAvailable())) {
+    // 1. Explicit or configured OpenRouter API
+    else if (provider === 'openrouter' || (!provider && cloudProvider === 'openrouter')) {
+      usedProvider = 'openrouter';
+      console.log('[AI Editor] Using OpenRouter API provider');
+      rawResponse = await promptOpenRouter(prompt);
+    }
+    // 2. Explicit or configured Gemini API
+    else if (provider === 'gemini' || (!provider && cloudProvider === 'gemini')) {
       usedProvider = 'gemini';
       console.log('[AI Editor] Using Gemini API provider');
       rawResponse = await promptGemini(prompt);
