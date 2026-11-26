@@ -37,6 +37,8 @@ const PAID_FALLBACK_MODELS = [
   'openrouter/auto',
 ];
 const REQUEST_TIMEOUT_MS = 45000;
+const DEFAULT_OUTPUT_TOKENS = 1400;
+const LARGE_OUTPUT_TOKENS = 3200;
 
 function getStorage() {
   try {
@@ -133,7 +135,7 @@ async function callOpenRouterOnce(
   key,
   model,
   prompt,
-  { useJsonFormat = true, disableReasoning = true } = {},
+  { useJsonFormat = true, disableReasoning = true, maxTokens } = {},
 ) {
   const body = {
     model,
@@ -146,7 +148,7 @@ async function callOpenRouterOnce(
       { role: 'user', content: prompt },
     ],
     temperature: 0.1,
-    max_tokens: disableReasoning ? 900 : 2400,
+    max_tokens: maxTokens ?? (disableReasoning ? DEFAULT_OUTPUT_TOKENS : 2400),
   };
   if (useJsonFormat) {
     body.response_format = { type: 'json_object' };
@@ -239,6 +241,15 @@ async function callOpenRouterOnce(
     throw err;
   }
 
+  const choice = data?.choices?.[0];
+  if (choice?.finish_reason === 'length') {
+    // Output was cut off mid-generation — the JSON would be unparseable. Retryable.
+    const err = new Error('תשובת המודל פחתה באמצע (מגבלת ותק הOutput).');
+    err.isTruncated = true;
+    err.retryable = true;
+    throw err;
+  }
+
   const text = stripThinking(extractMessageText(data));
   if (!text) {
     const err = new Error('התקבלה תשובה ריקה משירות OpenRouter.');
@@ -288,41 +299,58 @@ export async function promptOpenRouter(prompt, { apiKey, model } = {}) {
   let lastError = null;
 
   for (const candidate of models) {
-    try {
-      console.log('[OpenRouter AI] Trying model', candidate);
-      return await callOpenRouterOnce(key, candidate, prompt);
-    } catch (err) {
-      lastError = err;
-      const detail = String(err?.detail || err?.message || '');
+    let retriedWithLargerBudget = false;
+    for (;;) {
+      try {
+        console.log('[OpenRouter AI] Trying model', candidate);
+        return await callOpenRouterOnce(key, candidate, prompt, {
+          maxTokens: retriedWithLargerBudget ? LARGE_OUTPUT_TOKENS : undefined,
+        });
+      } catch (err) {
+        lastError = err;
+        const detail = String(err?.detail || err?.message || '');
 
-      if (err?.status === 401 || err?.status === 403) {
-        throw new Error(
-          `מפתח ה-OpenRouter API אינו תקין או חסר הרשאות (${err.status})${detail ? ': ' + detail : ''}. אנא בדוק את המפתח ב-openrouter.ai.`,
-        );
-      }
-      if (err?.status === 402) {
-        throw new Error(
-          'אין מספיק יתרה בחשבון ה-OpenRouter למודל שנבחר (402). אפשר להטעין יתרה או לבחור במודל החינמי (openrouter/free).',
-        );
-      }
-      if (err?.status === 429) {
-        throw new Error('חרגת ממגבלת הבקשות של OpenRouter (429). המתן מספר שניות ונסה שוב.');
-      }
+        if (err?.status === 401 || err?.status === 403) {
+          throw new Error(
+            `מפתח ה-OpenRouter API אינו תקין או חסר הרשאות (${err.status})${detail ? ': ' + detail : ''}. אנא בדוק את המפתח ב-openrouter.ai.`,
+          );
+        }
+        if (err?.status === 402) {
+          throw new Error(
+            'אין מספיק יתרה בחשבון ה-OpenRouter למודל שנבחר (402). אפשר להטעין יתרה או לבחור במודל החינמי (openrouter/free).',
+          );
+        }
+        if (err?.status === 429) {
+          throw new Error('חרגת ממגבלת הבקשות של OpenRouter (429). המתן מספר שניות ונסה שוב.');
+        }
 
-      const tryNext =
-        err?.isTimeout ||
-        err?.retryable ||
-        err?.status === 404 ||
-        err?.status === 502 ||
-        err?.status === 503 ||
-        /no endpoints found|not found|unavailable|overloaded|provider returned error/i.test(detail);
+        // Truncated output: retry the SAME model once with a larger output budget,
+        // before falling back to the next model in the pool.
+        if (err?.isTruncated && !retriedWithLargerBudget) {
+          retriedWithLargerBudget = true;
+          console.warn(
+            '[OpenRouter AI] response truncated at output limit, retrying with larger budget:',
+            candidate,
+          );
+          continue;
+        }
 
-      if (tryNext) {
-        console.warn('[OpenRouter AI] model failed/timed out, trying next:', candidate, detail);
-        continue;
+        const tryNext =
+          err?.isTruncated ||
+          err?.isTimeout ||
+          err?.retryable ||
+          err?.status === 404 ||
+          err?.status === 502 ||
+          err?.status === 503 ||
+          /no endpoints found|not found|unavailable|overloaded|provider returned error/i.test(detail);
+
+        if (tryNext) {
+          console.warn('[OpenRouter AI] model failed/timed out, trying next:', candidate, detail);
+          break;
+        }
+
+        throw err;
       }
-
-      throw err;
     }
   }
 

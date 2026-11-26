@@ -490,6 +490,97 @@ export function cleanAiUpdates(updates, { currentPerson = null, freeText = '' } 
 }
 
 /**
+ * Attempts to repair a JSON string that was cut off mid-generation by an AI model.
+ * Drops the incomplete trailing element (a partial string value or a dangling key),
+ * closes any unterminated arrays/objects, and returns the parsed object.
+ * Returns null when the text cannot be repaired — callers then keep the original parse error.
+ */
+export function repairTruncatedJson(text) {
+  if (typeof text !== 'string' || !text) return null;
+
+  // Single scan: track string state, open-container stack, and the last positions
+  // where the text could be cut safely (after a comma, closing bracket, or complete string).
+  let inString = false;
+  let escaped = false;
+  const stack = [];
+  let lastSafeIndex = -1;
+  let lastStringStart = -1;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+        lastSafeIndex = i + 1;
+      }
+    } else if (ch === '"') {
+      inString = true;
+      lastStringStart = i;
+    } else if (ch === '{' || ch === '[') {
+      stack.push(ch === '{' ? '}' : ']');
+    } else if (ch === '}' || ch === ']') {
+      if (stack.length) stack.pop();
+      lastSafeIndex = i + 1;
+    } else if (ch === ',') {
+      lastSafeIndex = i + 1;
+    }
+  }
+
+  // Nothing structurally incomplete — a plain JSON.parse failure of complete text has no repair.
+  if (!inString && stack.length === 0) return null;
+
+  const stripTail = (str) => str.replace(/[\s,;:]+$/, '');
+  const tryParse = (candidate) => {
+    if (!candidate) return null;
+    let inStr = false;
+    let esc = false;
+    const open = [];
+    for (const ch of candidate) {
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+      } else if (ch === '"') inStr = true;
+      else if (ch === '{' || ch === '[') open.push(ch === '{' ? '}' : ']');
+      else if (ch === '}' || ch === ']') {
+        if (open.length) open.pop();
+      }
+    }
+    if (inStr) return null; // candidate itself still has an unterminated string
+    try {
+      // Close containers in reverse open order (innermost first).
+      return JSON.parse(candidate + open.reverse().join(''));
+    } catch {
+      return null;
+    }
+  };
+
+  // Attempt A: cut at the last completed separator, keeping every fully received element.
+  const cutA = stripTail(text.slice(0, lastSafeIndex >= 0 ? lastSafeIndex : text.length));
+  let parsed = tryParse(cutA);
+  if (!parsed) {
+    // Attempt A2: the last key's value was cut off entirely — drop the dangling "key": pair.
+    parsed = tryParse(cutA.replace(/,\s*"[^"]*"\s*$/, ''));
+  }
+  if (parsed) return parsed;
+
+  // Attempt B: the incomplete string is the very first value (no separator before it).
+  // Cut back to its opening quote and drop the dangling key so the container can close.
+  if (inString && lastStringStart > 0) {
+    const cutB = stripTail(text.slice(0, lastStringStart))
+      .replace(/,\s*"[^"]*"\s*$/, '')
+      .replace(/^\s*\{\s*"[^"]*"\s*$/, '{');
+    parsed = tryParse(cutB);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+/**
  * Validates the schema of updates returned by window.ai.
  * Returns { valid: boolean, errors: string[], sanitized: object, diff: object }
  */

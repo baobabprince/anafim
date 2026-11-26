@@ -309,6 +309,7 @@ export function EditPersonAiModal({
         errors: result.errors,
         valid: result.valid,
         provider: result.provider,
+        warnings: result.warnings || [],
       });
 
       if (!result.valid) {
@@ -1327,6 +1328,13 @@ export function EditPersonAiModal({
               <div style={{ marginBottom: 6 }}>
                 <strong>סטטוס ולידציה:</strong> {debugInfo.valid ? 'תקין (Valid)' : 'שגיאה (Invalid)'}
               </div>
+              {debugInfo.warnings?.length > 0 && (
+                <div style={{ marginBottom: 6, color: '#8a5a00' }}>
+                  {debugInfo.warnings.map((w) => (
+                    <div key={w}>⚠ {w}</div>
+                  ))}
+                </div>
+              )}
               {debugInfo.diff && (
                 <div style={{ marginBottom: 6 }}>
                   <strong>שינויים (Diff):</strong>
