@@ -9,6 +9,7 @@ import {
   formatToGedcomDate,
   cleanAiUpdates,
   extractHebrewDateHints,
+  repairTruncatedJson,
 } from './gedcom-ai-editor.js';
 import { isLocalAiAvailable, promptLocalAi, getLocalAiProgress } from './local-ai-provider.js';
 import { isOllamaAvailable, promptOllama, getOllamaModel } from './ollama-ai-provider.js';
@@ -429,22 +430,45 @@ export async function analyzePersonTextWithAi(
   }
 
   let parsedJson = null;
+  let jsonRepaired = false;
+  const warnings = [];
   try {
     parsedJson = JSON.parse(jsonString);
   } catch (parseError) {
-    const errorMsg = 'שגיאה בפענוח JSON מתשובת ה-AI: ' + parseError.message;
-    if (devMode) {
-      console.warn('[AI Editor] JSON parse failure:', parseError, 'Raw text:', jsonString);
+    // AI responses are sometimes cut off mid-generation (unterminated string / array).
+    // Salvage the fully received fields instead of failing the whole extraction.
+    const repaired = repairTruncatedJson(jsonString);
+    if (repaired && typeof repaired === 'object' && !Array.isArray(repaired)) {
+      parsedJson = repaired;
+      jsonRepaired = true;
+      warnings.push(
+        'תשובת ה-AI פוצלה באמצע — ה-JSON נותקן ומדווח רק לפי השטחים המלאים שהתקבלו (ערות/ערכים חותכים נוקו).',
+      );
+      if (devMode) {
+        console.warn(
+          '[AI Editor] JSON parse failed; repaired truncated response:',
+          parseError.message,
+          '→',
+          repaired,
+        );
+      }
+    } else {
+      const errorMsg = 'שגיאה בפענוח JSON מתשובת ה-AI: ' + parseError.message;
+      if (devMode) {
+        console.warn('[AI Editor] JSON parse failure:', parseError, 'Raw text:', jsonString);
+      }
+      return {
+        valid: false,
+        errors: [errorMsg],
+        sanitized: null,
+        diff: {},
+        rawResponse,
+        parsedJson: null,
+        provider: usedProvider,
+        warnings,
+        repaired: false,
+      };
     }
-    return {
-      valid: false,
-      errors: [errorMsg],
-      sanitized: null,
-      diff: {},
-      rawResponse,
-      parsedJson: null,
-      provider: usedProvider,
-    };
   }
 
   if (devMode) {
@@ -504,5 +528,7 @@ export async function analyzePersonTextWithAi(
     rawResponse,
     parsedJson,
     provider: usedProvider,
+    warnings,
+    repaired: jsonRepaired,
   };
 }

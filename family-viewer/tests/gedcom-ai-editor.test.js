@@ -5,7 +5,8 @@ import {
   validatePersonUpdates,
   findPersonRecordRange,
   updatePersonRecord,
-  applyPersonUpdatesToGedcom
+  applyPersonUpdatesToGedcom,
+  repairTruncatedJson
 } from '../src/gedcom-ai-editor.js';
 import {
   buildPrompt,
@@ -739,5 +740,102 @@ test('OpenRouter API key, model storage, request contract, and provider selectio
     globalThis.fetch = originalFetch;
     removeOpenRouterApiKey();
     assert.equal(isOpenRouterAvailable(), false);
+  }
+});
+
+test('repairTruncatedJson salvages AI responses cut off mid-generation', () => {
+  // Cut off inside a notes array element (the real-world failure case)
+  const cutInArray = `{
+  "birthPlace": "שכונת רחביה, ירושלים",
+  "residencePlace": "אלון שבות",
+  "occupation": "עורך הדין",
+  "religion": "יהדות",
+  "notes": [
+    "תושב אלון שבות, נשוי ואב לארבעה",
+    "למד בישיבה התיכונית נתיב מאיר שבירושלים, ובשנת תשמ`;
+  const repaired = repairTruncatedJson(cutInArray);
+  assert.ok(repaired);
+  assert.equal(repaired.birthPlace, 'שכונת רחביה, ירושלים');
+  assert.equal(repaired.residencePlace, 'אלון שבות');
+  assert.equal(repaired.occupation, 'עורך הדין');
+  assert.equal(repaired.religion, 'יהדות');
+  assert.deepEqual(repaired.notes, ['תושב אלון שבות, נשוי ואב לארבעה']);
+
+  // Cut off mid string of an object value: the incomplete field is dropped
+  assert.deepEqual(repairTruncatedJson('{"birthPlace":"ירושלים","occupation":"נ'), {
+    birthPlace: 'ירושלים',
+  });
+
+  // Cut off right after a comma: last complete element kept
+  assert.deepEqual(repairTruncatedJson('{"birthDate":"1920","birthPlace":'), { birthDate: '1920' });
+
+  // Cut off right after a complete value with no separator
+  assert.deepEqual(repairTruncatedJson('{"birthDate":"1920"'), { birthDate: '1920' });
+
+  // Cut off inside nested structures: complete nested elements are kept
+  assert.deepEqual(repairTruncatedJson('{"notes":["a",["b","c'), { notes: ['a', ['b']] });
+
+  // Cut off inside the very first value: container closes empty
+  assert.deepEqual(repairTruncatedJson('{"occupation":"עור'), {});
+
+  // Escaped quotes inside strings must not break string tracking
+  assert.deepEqual(repairTruncatedJson('{"description":"قال \\"שלום\\", ועוד'), {});
+
+  // Complete text or unrepairable garbage: no repair attempted
+  assert.equal(repairTruncatedJson('{"a":1}'), null);
+  assert.equal(repairTruncatedJson('{"a":}'), null);
+  assert.equal(repairTruncatedJson('just plain text'), null);
+  assert.equal(repairTruncatedJson(''), null);
+});
+
+test('OpenRouter retries a truncated response with a larger output budget before failover', async () => {
+  const { promptOpenRouter, setOpenRouterApiKey, removeOpenRouterApiKey } = await import(
+    '../src/ai-service.js'
+  );
+
+  const store = {};
+  const originalWindow = globalThis.window;
+  const originalFetch = globalThis.fetch;
+  globalThis.window = {
+    location: { hostname: 'baobabprince.github.io' },
+    localStorage: {
+      getItem: (k) => (k in store ? store[k] : null),
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; },
+    },
+  };
+  setOpenRouterApiKey('sk-or-v1-test-key');
+
+  const attempts = [];
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    attempts.push(body.max_tokens);
+    if (attempts.length === 1) {
+      // Model hit its output token limit mid-generation
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ finish_reason: 'length', message: { content: '{"occupation":"נ' } }],
+        }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        choices: [{ finish_reason: 'stop', message: { content: '{"occupation":"נגר"}' } }],
+      }),
+    };
+  };
+
+  try {
+    const res = await promptOpenRouter('test', { model: 'openai/gpt-4o-mini' });
+    assert.equal(res, '{"occupation":"נגר"}');
+    assert.equal(attempts.length, 2, 'should retry the same model once');
+    assert.equal(attempts[0], 1400, 'first attempt uses default budget');
+    assert.equal(attempts[1], 3200, 'retry uses the larger output budget');
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.window = originalWindow;
+    removeOpenRouterApiKey();
   }
 });
