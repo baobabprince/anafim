@@ -679,6 +679,62 @@ test('OpenRouter API key, model storage, request contract, and provider selectio
       json: async () => ({ error: { message: 'Insufficient credits' } }),
     });
     await assert.rejects(() => promptOpenRouter('test'), /402/);
+
+    // Free model timeout during response.json() fails over ONLY to free models (never paid models)
+    const freeAttemptedModels = [];
+    globalThis.fetch = async (_url, options) => {
+      const body = JSON.parse(options.body);
+      freeAttemptedModels.push(body.model);
+      if (body.model === 'openrouter/free') {
+        return {
+          ok: true,
+          json: async () => {
+            const err = new Error('signal timed out');
+            err.name = 'TimeoutError';
+            throw err;
+          },
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"occupation":"סופר"}' } }],
+        }),
+      };
+    };
+    const freeRes = await promptOpenRouter('test', { model: 'openrouter/free' });
+    assert.equal(freeRes, '{"occupation":"סופר"}');
+    assert.deepEqual(freeAttemptedModels, ['openrouter/free', 'google/gemma-4-26b-a4b-it:free']);
+
+    // When all free attempts time out during body read, throw localized Hebrew timeout error (not raw TimeoutError)
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => {
+        const err = new Error('signal timed out');
+        err.name = 'TimeoutError';
+        throw err;
+      },
+    });
+    await assert.rejects(() => promptOpenRouter('test', { model: 'openrouter/free' }), /ארכה יותר מדי זמן/);
+
+    // HTTP 200 payload with embedded upstream error (common on OpenRouter) triggers failover to next free model
+    let embeddedErrAttempt = 0;
+    globalThis.fetch = async () => {
+      embeddedErrAttempt++;
+      if (embeddedErrAttempt === 1) {
+        return {
+          ok: true,
+          json: async () => ({ error: { code: 502, message: 'Provider returned error' } }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '{"birthPlace":"צפת"}' } }] }),
+      };
+    };
+    const embeddedRes = await promptOpenRouter('test', { model: 'openrouter/free' });
+    assert.equal(embeddedRes, '{"birthPlace":"צפת"}');
+    assert.equal(embeddedErrAttempt, 2);
   } finally {
     globalThis.fetch = originalFetch;
     removeOpenRouterApiKey();

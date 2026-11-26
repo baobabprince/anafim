@@ -16,6 +16,7 @@ const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 
 export const OPENROUTER_PRESET_MODELS = [
   { id: 'openrouter/free', label: 'OpenRouter Free (מומלץ · מודל חינמי אוטומטי)' },
+  { id: 'google/gemma-4-26b-a4b-it:free', label: 'Gemma 4 26B (חינמי ומהיר)' },
   { id: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (מהיר וחסכוני)' },
   { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash (מאוזן לעברית)' },
   { id: 'openai/gpt-4o-mini', label: 'GPT-4o Mini' },
@@ -24,13 +25,18 @@ export const OPENROUTER_PRESET_MODELS = [
 ];
 
 const DEFAULT_MODEL = OPENROUTER_PRESET_MODELS[0].id;
-const FALLBACK_MODELS = [
+const FREE_FALLBACK_MODELS = [
   'openrouter/free',
+  'google/gemma-4-26b-a4b-it:free',
+  'nvidia/nemotron-3.5-lightning:free',
+];
+const PAID_FALLBACK_MODELS = [
   'google/gemini-2.5-flash-lite',
   'google/gemini-2.5-flash',
   'openai/gpt-4o-mini',
   'openrouter/auto',
 ];
+const REQUEST_TIMEOUT_MS = 45000;
 
 function getStorage() {
   try {
@@ -123,7 +129,12 @@ function extractMessageText(data) {
   return '';
 }
 
-async function callOpenRouterOnce(key, model, prompt, { useJsonFormat = true } = {}) {
+async function callOpenRouterOnce(
+  key,
+  model,
+  prompt,
+  { useJsonFormat = true, disableReasoning = true } = {},
+) {
   const body = {
     model,
     messages: [
@@ -135,9 +146,14 @@ async function callOpenRouterOnce(key, model, prompt, { useJsonFormat = true } =
       { role: 'user', content: prompt },
     ],
     temperature: 0.1,
+    max_tokens: disableReasoning ? 900 : 2400,
   };
   if (useJsonFormat) {
     body.response_format = { type: 'json_object' };
+  }
+  if (disableReasoning) {
+    // Keep free/reasoning models fast on simple extraction; stripped automatically on 400 if mandatory.
+    body.reasoning = { enabled: false };
   }
 
   const headers = {
@@ -146,52 +162,88 @@ async function callOpenRouterOnce(key, model, prompt, { useJsonFormat = true } =
     'X-Title': 'Anafim Family Viewer',
   };
 
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller
+    ? setTimeout(() => {
+        const timeoutErr = new Error('TimeoutError: signal timed out');
+        timeoutErr.name = 'TimeoutError';
+        controller.abort(timeoutErr);
+      }, REQUEST_TIMEOUT_MS)
+    : null;
+
   let response;
+  let data;
   try {
-    const signal = typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(30000) : undefined;
     response = await fetch(ENDPOINT, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
-      ...(signal ? { signal } : {}),
+      ...(controller ? { signal: controller.signal } : {}),
     });
+
+    if (!response.ok) {
+      let errDetail = '';
+      try {
+        const errJson = await response.json();
+        errDetail = errJson?.error?.message || errJson?.message || '';
+      } catch {
+        // ignore
+      }
+
+      // Some models reject response_format or reasoning: { enabled: false } — retry without the unsupported option.
+      if (response.status === 400) {
+        const badReasoning =
+          disableReasoning && /reasoning|effort|thinking/i.test(errDetail);
+        const badJsonFormat =
+          useJsonFormat && /response_format|json_object|json mode|structured/i.test(errDetail);
+        if (badReasoning || badJsonFormat) {
+          if (timer) clearTimeout(timer);
+          return callOpenRouterOnce(key, model, prompt, {
+            useJsonFormat: badJsonFormat ? false : useJsonFormat,
+            disableReasoning: badReasoning ? false : disableReasoning,
+          });
+        }
+      }
+
+      const err = new Error(
+        `שגיאה משירות OpenRouter (${response.status}): ${errDetail || response.statusText}`,
+      );
+      err.status = response.status;
+      err.detail = errDetail;
+      throw err;
+    }
+
+    data = await response.json();
   } catch (netErr) {
-    if (netErr?.name === 'TimeoutError' || netErr?.name === 'AbortError') {
-      throw new Error('הבקשה ל-OpenRouter ארכה יותר מדי זמן. נסה שוב בעוד רגע.');
+    if (netErr?.status) throw netErr;
+    if (
+      netErr?.name === 'TimeoutError' ||
+      netErr?.name === 'AbortError' ||
+      controller?.signal?.aborted ||
+      /timed out/i.test(String(netErr?.message || ''))
+    ) {
+      const err = new Error('הבקשה ל-OpenRouter ארכה יותר מדי זמן. נסה שוב או בחר מודל אחר מהרשימה.');
+      err.isTimeout = true;
+      throw err;
     }
     throw new Error('שגיאת רשת בהתחברות ל-OpenRouter. אנא בדוק את החיבור לאינטרנט.');
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 
-  if (!response.ok) {
-    let errDetail = '';
-    try {
-      const errJson = await response.json();
-      errDetail = errJson?.error?.message || errJson?.message || '';
-    } catch {
-      // ignore
-    }
-
-    // Some models on OpenRouter reject response_format: json_object — retry once without it.
-    if (
-      useJsonFormat &&
-      response.status === 400 &&
-      /response_format|json_object|json mode|structured/i.test(errDetail)
-    ) {
-      return callOpenRouterOnce(key, model, prompt, { useJsonFormat: false });
-    }
-
-    const err = new Error(
-      `שגיאה משירות OpenRouter (${response.status}): ${errDetail || response.statusText}`,
-    );
-    err.status = response.status;
+  if (data?.error) {
+    const errDetail = data.error.message || JSON.stringify(data.error);
+    const err = new Error(`שגיאה משירות OpenRouter: ${errDetail}`);
+    err.status = Number(data.error.code) || 502;
     err.detail = errDetail;
     throw err;
   }
 
-  const data = await response.json();
   const text = stripThinking(extractMessageText(data));
   if (!text) {
-    throw new Error('התקבלה תשובה ריקה משירות OpenRouter.');
+    const err = new Error('התקבלה תשובה ריקה משירות OpenRouter.');
+    err.retryable = true;
+    throw err;
   }
   return text;
 }
@@ -229,7 +281,9 @@ export async function promptOpenRouter(prompt, { apiKey, model } = {}) {
   console.log('[OpenRouter AI] Using key', maskSecret(key));
 
   const preferred = (model || getOpenRouterModel()).trim() || DEFAULT_MODEL;
-  const models = [preferred, ...FALLBACK_MODELS.filter((m) => m !== preferred)];
+  const isFreeSelection = preferred === 'openrouter/free' || preferred.endsWith(':free');
+  const fallbackPool = isFreeSelection ? FREE_FALLBACK_MODELS : PAID_FALLBACK_MODELS;
+  const models = [preferred, ...fallbackPool.filter((m) => m !== preferred)];
 
   let lastError = null;
 
@@ -256,12 +310,15 @@ export async function promptOpenRouter(prompt, { apiKey, model } = {}) {
       }
 
       const tryNext =
+        err?.isTimeout ||
+        err?.retryable ||
         err?.status === 404 ||
+        err?.status === 502 ||
         err?.status === 503 ||
         /no endpoints found|not found|unavailable|overloaded|provider returned error/i.test(detail);
 
       if (tryNext) {
-        console.warn('[OpenRouter AI] model unavailable, trying next:', candidate, detail);
+        console.warn('[OpenRouter AI] model failed/timed out, trying next:', candidate, detail);
         continue;
       }
 
