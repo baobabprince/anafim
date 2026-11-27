@@ -66,8 +66,15 @@ export function setGeminiApiKey(key) {
     const clean = (key || '').trim();
     if (clean) {
       storage.setItem(STORAGE_KEY, clean);
+      storage.setItem('anafim_ai_configured', 'cloud');
     } else {
       storage.removeItem(STORAGE_KEY);
+      if (
+        !(storage.getItem('anafim_openrouter_api_key') || '').trim() &&
+        storage.getItem('anafim_ai_configured') === 'cloud'
+      ) {
+        storage.removeItem('anafim_ai_configured');
+      }
     }
   } catch (err) {
     console.warn('[Gemini AI] Failed to save API key to localStorage:', err);

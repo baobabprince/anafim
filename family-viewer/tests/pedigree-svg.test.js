@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseGedcom } from '../src/gedcom.js';
 import { DEMO_TEXT } from '../src/demo.js';
-import { buildPedigreeGraph, chartPrintNameSize, createPedigreeSvg, wrapChartText } from '../src/pedigree-svg.js';
+import { buildPedigreeGraph, chartPrintNameSize, connectedLineage, createPedigreeSvg, createPosterTileSvgs, resolveChartPage, wrapChartText } from '../src/pedigree-svg.js';
 import fs from 'node:fs';
 import { Resvg } from '@resvg/resvg-js';
 
@@ -875,4 +875,319 @@ test('automatic circles survive general graph fallback at different depths', () 
   for (const fid of ['F1','F2']) assert.match(svg, new RegExp(`data-family-id="@${fid}@" data-person-id="@E@" data-relation="child"`));
   for (const id of ['B','C','D','X','Y','Z']) assert.match(svg, new RegExp(`data-person-id="@${id}@" data-compact="true"`));
   assert.ok(new Resvg(svg).render().width > 0);
+});
+
+test('descendant layout staggers descendants spouses half a row below and inward while keeping root side-by-side', () => {
+  const data = parseGedcom(DEMO_TEXT);
+  for (const lang of ['he', 'en']) {
+    const svg = createPedigreeSvg(data, '@I2@', { mode: 'descendants', generations: 3, lang, date });
+    assert.match(svg, /data-layout="family-tree"/);
+    const { people, lines } = chartGeometry(svg);
+    const root = people.get('@I2@'), rootSpouse = people.get('@I3@');
+    assert.equal(root.y, rootSpouse.y);
+    assert.equal(root.width, 150);
+    assert.equal(rootSpouse.width, 150);
+    assert.doesNotMatch(svg, /data-person-id="@I3@"[^>]*data-spouse="true"/);
+
+    for (const [ownerId, spouseId] of [['@I4@', '@I14@'], ['@I1@', '@I6@'], ['@I5@', '@I15@']]) {
+      assert.match(svg, new RegExp(`data-person-id="${spouseId}"[^>]*data-spouse="true"`));
+      assert.doesNotMatch(svg, new RegExp(`data-person-id="${ownerId}"[^>]*data-spouse="true"`));
+      const owner = people.get(ownerId), spouse = people.get(spouseId);
+      assert.equal(spouse.width, 136);
+      assert.ok(spouse.y >= owner.y + owner.height, `${spouseId} must sit below ${ownerId}`);
+      if (lang === 'he') assert.ok(spouse.x + spouse.width < owner.x + owner.width, 'RTL spouse must indent left of owner right edge');
+      else assert.ok(spouse.x > owner.x, 'LTR spouse must indent right of owner left edge');
+    }
+    const boxes = [...people.values()];
+    for (let i = 0; i < boxes.length; i++) for (let j = 0; j < i; j++) {
+      const a = boxes[i], b = boxes[j];
+      assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
+    }
+    for (let i = 0; i < lines.length; i++) for (let j = 0; j < i; j++) {
+      const a = lines[i], b = lines[j];
+      const sharedPartner = a.type === 'partner' && b.type === 'partner' && a.person === b.person;
+      if (a.family !== b.family && !sharedPartner) assert.ok(!segmentsTouch(a.a, a.b, b.a, b.b));
+    }
+    for (const line of lines) for (const [id, box] of people) {
+      if (id === line.person) continue;
+      const x1 = box.x, y1 = box.y, x2 = x1 + box.width, y2 = y1 + box.height;
+      const corners = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
+      assert.ok(!corners.some((pt, idx) => strictIntersection(line.a, line.b, pt, corners[(idx + 1) % 4])));
+    }
+    assert.ok(new Resvg(svg).render().width > 0);
+  }
+
+  // Row of 4 married leaf descendants saves substantial horizontal width compared to side-by-side couples.
+  const leafPeople = Array.from({ length: 4 }, (_, i) => `0 @C${i}@ INDI\n1 NAME Child${i}\n0 @S${i}@ INDI\n1 NAME Spouse${i}`).join('\n');
+  const leafFams = Array.from({ length: 4 }, (_, i) => `0 @F${i}@ FAM\n1 HUSB @C${i}@\n1 WIFE @S${i}@`).join('\n');
+  const leafChil = Array.from({ length: 4 }, (_, i) => `1 CHIL @C${i}@`).join('\n');
+  const wide = parseGedcom(wrap(`0 @R@ INDI\n1 NAME Root\n0 @RS@ INDI\n1 NAME RootSpouse\n${leafPeople}\n0 @FR@ FAM\n1 HUSB @R@\n1 WIFE @RS@\n${leafChil}\n${leafFams}`));
+  const wideSvg = createPedigreeSvg(wide, '@R@', { mode: 'descendants', generations: 2, lang: 'he', date });
+  const viewWidth = Number(wideSvg.match(/viewBox="0 0 ([\d.]+) /)[1]);
+  assert.ok(viewWidth < 900, `Expected compact width < 900, got ${viewWidth}`);
+  assert.ok(new Resvg(wideSvg).render().width > 0);
+});
+
+test('staggered descendant couples handle multiline places, two marriages, union endings, and sibling rings cleanly', () => {
+  const data = parseGedcom(wrap(`
+0 @R@ INDI
+1 NAME אברהם /ברזילי/
+1 SEX M
+0 @RS@ INDI
+1 NAME שרה /ברזילי/
+1 SEX F
+0 @C1@ INDI
+1 NAME יוסי /ברזילי/
+1 SEX M
+1 BIRT
+2 PLAC תל אביב יפו מחוז המרכז ישראל
+0 @C1S@ INDI
+1 NAME מיכל /שפירא לוי כהן/
+1 SEX F
+1 BIRT
+2 PLAC ירושלים מחוז ירושלים ישראל
+0 @G1@ INDI
+1 NAME עומר /ברזילי/
+1 SEX M
+0 @G1S@ INDI
+1 NAME דנה /לוי/
+1 SEX F
+0 @C2@ INDI
+1 NAME אילן /ברזילי/
+1 SEX M
+0 @C2S1@ INDI
+1 NAME רונית /גולן/
+1 SEX F
+0 @C2S2@ INDI
+1 NAME טלי /עוז/
+1 SEX F
+0 @G2@ INDI
+1 NAME ליאור /ברזילי/
+1 SEX M
+0 @G4@ INDI
+1 NAME מאיה /ברזילי/
+1 SEX F
+0 @G5@ INDI
+1 NAME שי /ברזילי/
+1 SEX M
+0 @G6@ INDI
+1 NAME גיל /ברזילי/
+1 SEX M
+0 @FR@ FAM
+1 HUSB @R@
+1 WIFE @RS@
+1 CHIL @C1@
+1 CHIL @C2@
+0 @F1@ FAM
+1 HUSB @C1@
+1 WIFE @C1S@
+1 CHIL @G1@
+1 DIV Y
+0 @FG1@ FAM
+1 HUSB @G1@
+1 WIFE @G1S@
+0 @F2A@ FAM
+1 HUSB @C2@
+1 WIFE @C2S1@
+1 CHIL @G2@
+1 DIV Y
+0 @F2B@ FAM
+1 HUSB @C2@
+1 WIFE @C2S2@
+1 CHIL @G4@
+1 CHIL @G5@
+1 CHIL @G6@
+1 _STAT WIDOWED`));
+  for (const lang of ['he', 'en']) {
+    const svg = createPedigreeSvg(data, '@R@', { mode: 'descendants', generations: 3, showPlaces: true, lang, date });
+    assert.match(svg, /data-layout="family-tree"/);
+    assert.match(svg, /class="branch-ring" data-family-id="@F2B@"/);
+    assert.match(svg, lang === 'he' ? />גירושין<\/text>/ : />divorce<\/text>/);
+    assert.match(svg, lang === 'he' ? />התאלמנות<\/text>/ : />widowhood<\/text>/);
+    const { people, lines } = chartGeometry(svg);
+    const boxes = [...people.values()];
+    for (let i = 0; i < boxes.length; i++) for (let j = 0; j < i; j++) {
+      const a = boxes[i], b = boxes[j];
+      assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y, `${lang}: boxes must not overlap`);
+    }
+    for (let i = 0; i < lines.length; i++) for (let j = 0; j < i; j++) {
+      const a = lines[i], b = lines[j];
+      const sharedPartner = a.type === 'partner' && b.type === 'partner' && a.person === b.person;
+      if (a.family !== b.family && !sharedPartner) assert.ok(!segmentsTouch(a.a, a.b, b.a, b.b), `${lang}: unrelated family lines must not touch`);
+    }
+    for (const line of lines) for (const [id, box] of people) {
+      if (id === line.person) continue;
+      const x1 = box.x, y1 = box.y, x2 = x1 + box.width, y2 = y1 + box.height;
+      const corners = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
+      assert.ok(!corners.some((pt, idx) => strictIntersection(line.a, line.b, pt, corners[(idx + 1) % 4])), `${lang}: line passes through ${id}`);
+    }
+    assert.ok(new Resvg(svg).render().width > 0);
+  }
+});
+
+test('cross-linked descendant graph fallback preserves normal non-staggered boxes', () => {
+  const data = parseGedcom(wrap(`0 @R@ INDI\n1 NAME Root\n0 @A@ INDI\n1 NAME ChildA\n0 @B@ INDI\n1 NAME ChildB\n0 @BS@ INDI\n1 NAME ChildBSpouse\n0 @C@ INDI\n1 NAME SharedGrandchild\n0 @F0@ FAM\n1 HUSB @R@\n1 CHIL @A@\n1 CHIL @B@\n0 @F1@ FAM\n1 HUSB @A@\n1 CHIL @C@\n0 @F2@ FAM\n1 HUSB @B@\n1 WIFE @BS@\n1 CHIL @C@`));
+  const svg = createPedigreeSvg(data, '@R@', { ...opts, mode: 'descendants', generations: 3 });
+  assert.match(svg, /data-layout="graph"/);
+  assert.doesNotMatch(svg, /data-spouse="true"/);
+  assert.equal(chartGeometry(svg).people.get('@BS@').width, 150);
+});
+
+test('RTL ordering puts root and older siblings on the right and isolates Hebrew subtitle digits', () => {
+  const data = parseGedcom(DEMO_TEXT);
+  const he = createPedigreeSvg(data, '@I2@', { mode: 'descendants', generations: 3, lang: 'he', date });
+  const en = createPedigreeSvg(data, '@I2@', { mode: 'descendants', generations: 3, lang: 'en', date });
+  const hePeople = chartGeometry(he).people;
+  const enPeople = chartGeometry(en).people;
+  assert.ok(hePeople.get('@I2@').x > hePeople.get('@I3@').x, 'RTL root sits right of partner');
+  assert.ok(enPeople.get('@I2@').x < enPeople.get('@I3@').x, 'LTR root sits left of partner');
+  assert.ok(hePeople.get('@I4@').x > hePeople.get('@I5@').x, 'RTL older sibling sits right of younger');
+  assert.ok(enPeople.get('@I4@').x < enPeople.get('@I5@').x, 'LTR older sibling sits left of younger');
+  assert.match(he, /\u200f3 דורות של צאצאים/);
+  assert.match(he, /unicode-bidi:embed/);
+});
+
+test('compact sibling grid layout narrows 1-column and 2-column branches without overlaps or crossings', () => {
+  for (const count of [4, 7]) {
+    const branches = ['A', 'B', 'C'];
+    const people = [];
+    const fams = [];
+    for (const b of branches) {
+      people.push(`0 @${b}@ INDI\n1 NAME Branch${b}`);
+      const childTags = [];
+      for (let i = 0; i < count; i++) {
+        const cid = `@${b}${i}@`;
+        people.push(`0 ${cid} INDI\n1 NAME Child${b}${i}\n1 SEX ${i % 2 ? 'F' : 'M'}`);
+        childTags.push(`1 CHIL ${cid}`);
+      }
+      fams.push(`0 @F${b}@ FAM\n1 HUSB @${b}@\n${childTags.join('\n')}`);
+    }
+    const data = parseGedcom(wrap(`0 @R@ INDI\n1 NAME Root\n${people.join('\n')}\n0 @FR@ FAM\n1 HUSB @R@\n${branches.map(b => `1 CHIL @${b}@`).join('\n')}\n${fams.join('\n')}`));
+    const ringSvg = createPedigreeSvg(data, '@R@', { mode: 'descendants', generations: 3, lang: 'he', siblingLayout: 'ring', date });
+    const gridSvg = createPedigreeSvg(data, '@R@', { mode: 'descendants', generations: 3, lang: 'he', siblingLayout: 'grid', date });
+    const width = svg => Number(svg.match(/viewBox="0 0 ([\d.]+) /)[1]);
+    assert.match(gridSvg, /class="branch-ring branch-grid" data-family-id="@FA@"/);
+    assert.ok(width(gridSvg) < width(ringSvg) * 0.85, `grid width ${width(gridSvg)} must be substantially narrower than ring ${width(ringSvg)} for ${count} kids`);
+    const { people: boxesMap, lines } = chartGeometry(gridSvg);
+    const boxes = [...boxesMap.values()];
+    for (let i = 0; i < boxes.length; i++) for (let j = 0; j < i; j++) {
+      const a = boxes[i], b = boxes[j];
+      assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
+    }
+    for (let i = 0; i < count; i++) {
+      assert.match(gridSvg, new RegExp(`data-family-id="@FA@" data-person-id="@A${i}@" data-relation="child"`));
+    }
+    for (const line of lines) for (const [id, box] of boxesMap) {
+      if (id === line.person) continue;
+      const x1 = box.x, y1 = box.y, x2 = x1 + box.width, y2 = y1 + box.height;
+      const corners = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
+      assert.ok(!corners.some((pt, idx) => strictIntersection(line.a, line.b, pt, corners[(idx + 1) % 4])));
+    }
+    assert.ok(new Resvg(gridSvg).render().width > 0);
+  }
+});
+
+test('dedicated ancestor layout arranges vertical and horizontal charts cleanly and falls back on branches', () => {
+  const data = parseGedcom(DEMO_TEXT);
+  for (const lang of ['he', 'en']) {
+    for (const ancestorOrientation of ['vertical', 'horizontal']) {
+      const svg = createPedigreeSvg(data, '@I1@', { mode: 'ancestors', generations: 4, ancestorOrientation, lang, date });
+      assert.match(svg, /data-layout="ancestor-tree"/);
+      const { people, lines } = chartGeometry(svg);
+      const boxes = [...people.values()];
+      for (let i = 0; i < boxes.length; i++) for (let j = 0; j < i; j++) {
+        const a = boxes[i], b = boxes[j];
+        assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
+      }
+      for (let i = 0; i < lines.length; i++) for (let j = 0; j < i; j++) {
+        const a = lines[i], b = lines[j];
+        const sharedPartner = a.type === 'partner' && b.type === 'partner' && a.person === b.person;
+        if (a.family !== b.family && !sharedPartner) assert.ok(!segmentsTouch(a.a, a.b, b.a, b.b));
+      }
+      if (ancestorOrientation === 'horizontal') {
+        if (lang === 'he') assert.ok(people.get('@I1@').x > people.get('@I2@').x && people.get('@I2@').x > people.get('@I10@').x);
+        else assert.ok(people.get('@I1@').x < people.get('@I2@').x && people.get('@I2@').x < people.get('@I10@').x);
+      } else {
+        if (lang === 'he') assert.ok(people.get('@I2@').x > people.get('@I3@').x);
+        else assert.ok(people.get('@I2@').x < people.get('@I3@').x);
+      }
+      assert.ok(new Resvg(svg).render().width > 0);
+    }
+  }
+  const branched = createPedigreeSvg(data, '@I1@', { mode: 'ancestors', generations: 4, includeBranches: true, lang: 'he', date });
+  assert.match(branched, /data-layout="graph"/);
+});
+
+test('marriage years and generation labels render cleanly in descendants and ancestors charts', () => {
+  const data = parseGedcom(DEMO_TEXT);
+  const desc = createPedigreeSvg(data, '@I2@', { mode: 'descendants', generations: 3, showMarriageYears: true, showGenerationLabels: true, lang: 'he', date });
+  assert.match(desc, /class="marriage-year"[^>]*>נ׳ 1979<\/text>/);
+  assert.match(desc, /class="marriage-year"[^>]*>נ׳ 2009<\/text>/);
+  assert.match(desc, /class="generation-guides"/);
+  assert.match(desc, />דור 1<\/text>/);
+  assert.match(desc, />דור 3<\/text>/);
+  assert.ok(new Resvg(desc).render().width > 0);
+
+  const ancH = createPedigreeSvg(data, '@I1@', { mode: 'ancestors', generations: 4, ancestorOrientation: 'horizontal', showMarriageYears: true, showGenerationLabels: true, lang: 'en', date });
+  assert.match(ancH, /class="marriage-year"[^>]*>m\. 1979<\/text>/);
+  assert.match(ancH, />Gen 1<\/text>/);
+  assert.match(ancH, />Gen 4<\/text>/);
+  assert.match(ancH, />Children<\/text>/);
+  assert.ok(new Resvg(ancH).render().width > 0);
+});
+
+test('profile photos embed only validated raster data URLs when enabled', () => {
+  const data = parseGedcom(DEMO_TEXT);
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const withPhotos = createPedigreeSvg(data, '@I2@', {
+    mode: 'descendants',
+    generations: 3,
+    showPhotos: true,
+    photos: {
+      '@I2@': tinyPng,
+      '@I14@': tinyPng,
+      '@I3@': 'https://evil.example.com/p.png',
+      '@I6@': 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+    },
+    lang: 'he',
+    date,
+  });
+  assert.equal((withPhotos.match(/<image /g) || []).length, 2);
+  assert.equal((withPhotos.match(/<clipPath /g) || []).length, 2);
+  assert.doesNotMatch(withPhotos, /evil\.example\.com|image\/svg\+xml/);
+  assert.ok(new Resvg(withPhotos).render().width > 0);
+
+  const disabled = createPedigreeSvg(data, '@I2@', { mode: 'descendants', generations: 3, showPhotos: false, photos: { '@I2@': tinyPng }, lang: 'he', date });
+  assert.doesNotMatch(disabled, /<image |<clipPath /);
+});
+
+test('page orientation resolution, poster tiling, and connectedLineage work accurately', () => {
+  const data = parseGedcom(DEMO_TEXT);
+  // Build a 5-generation binary ancestor tree: 16 top leaves makes horizontal mode taller than wide.
+  const binPeople = [];
+  const binFams = [];
+  for (let i = 1; i <= 31; i++) binPeople.push(`0 @N${i}@ INDI\n1 NAME Ancestor${i}\n1 SEX ${i % 2 ? 'F' : 'M'}`);
+  for (let i = 1; i <= 15; i++) binFams.push(`0 @BF${i}@ FAM\n1 HUSB @N${2 * i}@\n1 WIFE @N${2 * i + 1}@\n1 CHIL @N${i}@`);
+  const fiveGenData = parseGedcom(wrap(`${binPeople.join('\n')}\n${binFams.join('\n')}`));
+  const tall = createPedigreeSvg(fiveGenData, '@N1@', { mode: 'ancestors', generations: 5, ancestorOrientation: 'horizontal', lang: 'he', date });
+  const wide = createPedigreeSvg(data, '@I1@', { mode: 'ancestors', generations: 4, ancestorOrientation: 'vertical', lang: 'he', date });
+  assert.equal(resolveChartPage(tall, 'A4', 'auto').orientation, 'portrait');
+  assert.equal(resolveChartPage(wide, 'A4', 'auto').orientation, 'landscape');
+  assert.equal(resolveChartPage(wide, 'A4', 'portrait').width, 210);
+
+  const singlePt = chartPrintNameSize(wide, 'A4', { orientation: 'landscape', posterPages: '1x1' });
+  const posterPt = chartPrintNameSize(wide, 'A4', { orientation: 'landscape', posterPages: '2x2' });
+  assert.ok(Math.abs(posterPt - singlePt * 2) < 0.05);
+
+  const tiles = createPosterTileSvgs(wide, { cols: 2, rows: 2 });
+  assert.equal(tiles.length, 4);
+  for (const tile of tiles) {
+    assert.ok(tile.svg.includes(`${tile.index}/4`));
+    assert.ok(new Resvg(tile.svg).render().width > 0);
+  }
+
+  const model = buildPedigreeGraph(data, '@I1@', { mode: 'ancestors', generations: 3, includeBranches: true });
+  const lineage = connectedLineage(model, '@I1@');
+  assert.ok(lineage.people.has('@I1@') && lineage.people.has('@I2@') && lineage.people.has('@I10@') && lineage.people.has('@I6@') && lineage.people.has('@I7@'));
+  assert.ok(!lineage.people.has('@I14@') && !lineage.people.has('@I16@'));
 });

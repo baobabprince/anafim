@@ -1,13 +1,8 @@
 import { getYear } from './gedcom.js';
+import { EVENT_NAMES, ATTRIBUTE_NAMES } from './gedcom-tags.js';
 
-export const EVENT_NAMES = {
-  BIRT:'לידה', DEAT:'פטירה', BURI:'קבורה', CREM:'שריפה', BAPM:'טבילה', CHR:'טבילה',
-  ADOP:'אימוץ', RESI:'מגורים', IMMI:'עלייה / הגירה', EMIG:'הגירה', NATU:'התאזרחות',
-  GRAD:'סיום לימודים', RETI:'פרישה', OCCU:'עיסוק', EDUC:'לימודים', EVEN:'אירוע',
-  CENS:'מפקד אוכלוסין', MARR:'נישואים', DIV:'גירושים', ENGA:'אירוסים', CHIL_BIRT:'הולדת ילד/ה',
-};
-export const ATTRIBUTE_NAMES = { NATI:'לאום כפי שתועד', RELI:'דת כפי שתועדה', TITL:'תואר', DSCR:'תיאור', IDNO:'מזהה נוסף', NCHI:'מספר ילדים כפי שתועד', NMR:'מספר נישואים כפי שתועד' };
-export const eventTitle = event => event.label || EVENT_NAMES[event.type] || 'אירוע מתועד';
+export { EVENT_NAMES, ATTRIBUTE_NAMES };
+export const eventTitle = event => event.label || EVENT_NAMES[event.type] || ATTRIBUTE_NAMES[event.type] || (event.type?.startsWith('_') ? event.type.slice(1) : '') || 'אירוע מתועד';
 
 const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 function dateSort(date = '') {

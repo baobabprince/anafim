@@ -1212,7 +1212,7 @@ export default function App() {
     if (name) setToast(`מציגים את ${name}`);
   }, [bundle]);
 
-  const handleApplyAiUpdate = useCallback(({ updatedRaw, updates, diff }) => {
+  const handleApplyAiUpdate = useCallback(({ updatedRaw, updates, diff, summary }) => {
     try {
       const nextData = parseGedcom(updatedRaw);
       // Save current state to undo stack
@@ -1233,7 +1233,7 @@ export default function App() {
       }
 
       setBundle(nextBundle);
-      setToast('הפרטים עודכנו בהצלחה ב-GEDCOM.');
+      setToast(summary || 'הפרטים עודכנו בהצלחה ב-GEDCOM.');
     } catch (err) {
       console.error('Failed to apply GEDCOM update:', err);
       setToast('שגיאה בעדכון ה-GEDCOM: ' + err.message);

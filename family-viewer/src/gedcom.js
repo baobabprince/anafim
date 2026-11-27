@@ -1,9 +1,23 @@
 // GEDCOM 5.5 / 5.5.1 / 7 reader. The same parser works synchronously, in a worker, or in cooperative browser tasks.
+import { INDI_EVENT_TAGS, FAM_EVENT_TAGS } from './gedcom-tags.js';
+
 const child = (n, tag) => n?.children?.find(c => c.tag === tag);
 const children = (n, tag) => n?.children?.filter(c => c.tag === tag) || [];
 const value = (n, tag) => child(n, tag)?.value || '';
 const unique = xs => [...new Set(xs.filter(Boolean))];
 const ref = s => /^@[^@]+@$/.test((s || '').trim()) ? s.trim() : null;
+
+const INDI_EVENT_TAG_SET = new Set([...Object.keys(INDI_EVENT_TAGS), 'RESI', 'OCCU', 'EDUC', 'PROP', 'FACT']);
+const INDI_ATTR_TAG_SET = new Set([
+  'NATI', 'RELI', 'TITL', 'DSCR', 'IDNO', 'SSN', 'CAST', 'PROP', 'EDUC', 'FACT',
+  'NCHI', 'NMR', 'PHON', 'EMAIL', 'WWW', 'FAX', 'ADDR', 'REFN', 'RESN', 'UID',
+  'EXID', 'AFN', 'RFN', 'RIN', 'ALIA', 'NO',
+]);
+const INDI_STRUCTURAL_HANDLED = new Set([
+  'NAME', 'SEX', 'FAMC', 'FAMS', 'OBJE', 'NOTE', 'SNOTE', 'SOUR',
+  'CHAN', 'CREA', 'SUBM', 'ANCI', 'DESI', 'OCCU', 'ASSO',
+]);
+const FAM_EXTRA_EVENT_TAGS = new Set(Object.keys(FAM_EVENT_TAGS).filter(t => t !== 'MARR' && t !== 'DIV'));
 
 function text(n) {
   if (!n) return '';
@@ -18,6 +32,18 @@ function text(n) {
   return join(n).trim();
 }
 
+function formatAddressNode(addrNode) {
+  if (!addrNode) return '';
+  const baseText = text(addrNode);
+  const subParts = ['ADR1', 'ADR2', 'ADR3', 'CITY', 'STAE', 'POST', 'CTRY']
+    .map(tag => text(child(addrNode, tag)))
+    .filter(Boolean);
+  if (!subParts.length) return baseText;
+  if (!baseText) return subParts.join(', ');
+  const missing = subParts.filter(part => !baseText.includes(part));
+  return missing.length ? `${baseText}\n${missing.join(', ')}` : baseText;
+}
+
 export function normalize(s = '') {
   return String(s).normalize('NFKD').replace(/\p{M}/gu, '').replace(/[\u200e\u200f]/g, '').toLocaleLowerCase().replace(/[\/"׳״'.,־–—-]/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -29,7 +55,30 @@ function citationsFromNode(n) {
 }
 
 function eventFromNode(n) {
-  return { type: n.tag, label: value(n, 'TYPE'), date: value(n, 'DATE'), place: text(child(n, 'PLAC')), address:text(child(n,'ADDR')), cause:text(child(n,'CAUS')), age:value(n,'AGE'), detail: n.value === 'Y' ? '' : n.value, notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text), sources: citationsFromNode(n) };
+  const placNode = child(n, 'PLAC');
+  const mapNode = child(placNode, 'MAP');
+  const lati = value(mapNode, 'LATI');
+  const long = value(mapNode, 'LONG');
+  const coordinates = (lati || long) ? { lat: lati, lng: long } : null;
+  return {
+    type: n.tag,
+    label: value(n, 'TYPE'),
+    date: value(n, 'DATE'),
+    time: value(child(n, 'DATE'), 'TIME'),
+    place: text(placNode),
+    address: formatAddressNode(child(n, 'ADDR')),
+    cause: text(child(n, 'CAUS')),
+    age: value(n, 'AGE'),
+    agency: text(child(n, 'AGNC')),
+    religion: text(child(n, 'RELI')),
+    phone: value(n, 'PHON'),
+    email: value(n, 'EMAIL'),
+    www: value(n, 'WWW'),
+    coordinates,
+    detail: n.value === 'Y' ? '' : n.value,
+    notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text),
+    sources: citationsFromNode(n),
+  };
 }
 
 function* parseGedcomSteps(raw) {
@@ -51,10 +100,15 @@ function* parseGedcomSteps(raw) {
         const type = value(nn, 'TYPE').toLowerCase();
         const rawName = text(nn);
         const split = rawName.match(/^(.*?)\/(.*?)\/(.*)$/s);
+        const npfx = value(nn, 'NPFX');
+        const spfx = value(nn, 'SPFX');
+        const nsfx = value(nn, 'NSFX');
+        const nick = value(nn, 'NICK');
         const given = value(nn, 'GIVN') || split?.[1]?.trim() || (split ? '' : rawName);
         const surname = value(nn, 'SURN') || split?.[2]?.trim() || '';
-        const full = rawName.replace(/\//g, '').replace(/\s+/g, ' ').trim() || [given, surname].filter(Boolean).join(' ') || '';
-        return { type, given, surname, full, raw: rawName };
+        const full = rawName.replace(/\//g, '').replace(/\s+/g, ' ').trim() || [npfx, given, spfx, surname, nsfx].filter(Boolean).join(' ') || '';
+        const transliterations = [...children(nn, 'TRAN'), ...children(nn, 'ROMN'), ...children(nn, 'FONE')].map(text).filter(Boolean);
+        return { type, given, surname, full, raw: rawName, npfx, nick, spfx, nsfx, transliterations };
       };
       const nameEntries = nameNodes.map(parseNameNode).filter(Boolean);
       const primaryEntry = nameEntries.find(e => !['married', 'married name', 'marriedname', 'aka', 'nick', 'nickname'].includes(e.type)) || nameEntries[0];
@@ -71,15 +125,79 @@ function* parseGedcomSteps(raw) {
         const bits = birthEntry.full.split(/\s+/);
         if (bits.length > 1) birthSurname = bits.at(-1);
       }
-      const eventTags = ['BIRT','DEAT','BURI','CREM','BAPM','CHR','ADOP','RESI','IMMI','EMIG','NATU','GRAD','RETI','OCCU','EDUC','EVEN','CENS'];
-      const events = n.children.filter(c => eventTags.includes(c.tag)).map(eventFromNode);
+      const isCustomEvent = c => !INDI_EVENT_TAG_SET.has(c.tag) && !INDI_ATTR_TAG_SET.has(c.tag) && !INDI_STRUCTURAL_HANDLED.has(c.tag) && (child(c, 'DATE') || child(c, 'PLAC'));
+      const events = n.children.filter(c => INDI_EVENT_TAG_SET.has(c.tag) || isCustomEvent(c)).map(eventFromNode);
       const alternateNames = nameEntries.filter(e => e !== primaryEntry).map(e => e.full).filter(Boolean);
-      const p = { id: n.xref, name, given, surname, sex: value(n, 'SEX'), alternateNames, marriedSurname, birthSurname, birth: events.find(e => e.type === 'BIRT') || null, death: events.find(e => e.type === 'DEAT') || null, events, images:children(n,'OBJE').map(object=>object.value.trim() || children(object,'FILE').map(text)).flat(), parentFamilies: children(n, 'FAMC').map(c => ({ id: c.value, type: value(c, 'PEDI') || 'birth' })), spouseFamilies: children(n, 'FAMS').map(c => c.value), notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text), sources: citationsFromNode(n), occupation: text(child(n, 'OCCU')), attributes:n.children.filter(c=>['NATI','RELI','TITL','DSCR','IDNO','NCHI','NMR'].includes(c.tag)).map(c=>({type:c.tag,value:text(c)})) };
+      const nickname = nameEntries.map(e => e.nick).find(Boolean) || '';
+      const namePrefix = primaryEntry?.npfx || '';
+      const surnamePrefix = primaryEntry?.spfx || '';
+      const nameSuffix = primaryEntry?.nsfx || '';
+      const transliterations = unique(nameEntries.flatMap(e => e.transliterations || []));
+      const attributes = n.children
+        .filter(c => INDI_ATTR_TAG_SET.has(c.tag))
+        .map(c => ({
+          type: c.tag,
+          label: value(c, 'TYPE'),
+          value: c.tag === 'ADDR' ? formatAddressNode(c) : text(c),
+          date: value(c, 'DATE'),
+          place: text(child(c, 'PLAC')),
+        }));
+      const associations = children(n, 'ASSO').map(c => ({
+        id: c.value.trim(),
+        role: value(c, 'RELA') || value(c, 'ROLE'),
+        notes: [...children(c, 'NOTE'), ...children(c, 'SNOTE')].map(text),
+      }));
+      const customTags = n.children
+        .filter(c => !INDI_EVENT_TAG_SET.has(c.tag) && !INDI_ATTR_TAG_SET.has(c.tag) && !INDI_STRUCTURAL_HANDLED.has(c.tag) && !isCustomEvent(c))
+        .map(c => ({
+          tag: c.tag,
+          label: value(c, 'TYPE'),
+          value: text(c),
+          date: value(c, 'DATE'),
+          place: text(child(c, 'PLAC')),
+        }));
+      const p = {
+        id: n.xref,
+        name,
+        given,
+        surname,
+        nickname,
+        namePrefix,
+        surnamePrefix,
+        nameSuffix,
+        transliterations,
+        sex: value(n, 'SEX'),
+        alternateNames,
+        marriedSurname,
+        birthSurname,
+        birth: events.find(e => e.type === 'BIRT') || null,
+        death: events.find(e => e.type === 'DEAT') || null,
+        events,
+        images: children(n, 'OBJE').map(object => object.value.trim() || children(object, 'FILE').map(text)).flat(),
+        parentFamilies: children(n, 'FAMC').map(c => ({ id: c.value, type: value(c, 'PEDI') || 'birth' })),
+        spouseFamilies: children(n, 'FAMS').map(c => c.value),
+        notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text),
+        sources: citationsFromNode(n),
+        occupation: text(child(n, 'OCCU')),
+        attributes,
+        associations,
+        customTags,
+      };
       people[p.id] = p;
       order.push(p.id);
     } else if (n.tag === 'FAM' && n.xref) {
       if (families[n.xref]) { warn(`מזהה משפחה כפול: ${n.xref}. נשמר הרישום הראשון.`); return; }
-      families[n.xref] = { id: n.xref, partners: unique([...children(n, 'HUSB'), ...children(n, 'WIFE'), ...children(n, '_PART')].map(c => c.value)), children: unique(children(n, 'CHIL').map(c => c.value)), marriage: child(n, 'MARR') ? eventFromNode(child(n, 'MARR')) : null, divorce: child(n, 'DIV') ? eventFromNode(child(n, 'DIV')) : null, relationshipStatus: text(child(n, '_STAT')) || text(child(n, '_MSTAT')), events:n.children.filter(c=>['ENGA','EVEN','RESI','CENS'].includes(c.tag)).map(eventFromNode), sources:citationsFromNode(n), notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text) };
+      families[n.xref] = {
+        id: n.xref,
+        partners: unique([...children(n, 'HUSB'), ...children(n, 'WIFE'), ...children(n, '_PART')].map(c => c.value)),
+        children: unique(children(n, 'CHIL').map(c => c.value)),
+        marriage: child(n, 'MARR') ? eventFromNode(child(n, 'MARR')) : null,
+        divorce: child(n, 'DIV') ? eventFromNode(child(n, 'DIV')) : null,
+        relationshipStatus: text(child(n, '_STAT')) || text(child(n, '_MSTAT')),
+        events: n.children.filter(c => FAM_EXTRA_EVENT_TAGS.has(c.tag) || (c.tag.startsWith('_') && !['_STAT', '_MSTAT'].includes(c.tag) && (child(c, 'DATE') || child(c, 'PLAC')))).map(eventFromNode),
+        sources: citationsFromNode(n),
+        notes: [...children(n, 'NOTE'), ...children(n, 'SNOTE')].map(text),
+      };
     } else if (n.tag === 'OBJE' && n.xref) mediaObjects[n.xref] = children(n, 'FILE').map(text);
     else if (['NOTE','SNOTE'].includes(n.tag) && n.xref) notes[n.xref] = text(n);
     else if (n.tag === 'SOUR' && n.xref) sources[n.xref] = { id: n.xref, title: text(child(n, 'TITL')) || n.value, author: text(child(n, 'AUTH')), publication: text(child(n, 'PUBL')) };
@@ -138,6 +256,7 @@ function* parseGedcomSteps(raw) {
     p.spouseFamilies = p.spouseFamilies.filter(id => families[id]);
     p.notes = resolveNotes(p.notes);
     p.events.forEach(e => { e.notes = resolveNotes(e.notes); });
+    p.associations.forEach(a => { a.notes = resolveNotes(a.notes); });
     if (p.sex === 'F' && !p.marriedSurname && p.spouseFamilies.length) {
       const partnerSurnames = [];
       for (const fid of p.spouseFamilies) {
@@ -158,7 +277,22 @@ function* parseGedcomSteps(raw) {
     if (p.sex === 'F' && p.marriedSurname && !p.birthSurname && p.surname && normalize(p.surname) !== normalize(p.marriedSurname)) {
       p.birthSurname = p.surname;
     }
-    p.search = normalize([p.name, p.marriedSurname, p.birthSurname, ...p.alternateNames, p.birth?.date, p.birth?.place, p.death?.date, p.death?.place, p.id].filter(Boolean).join(' '));
+    p.search = normalize([
+      p.name,
+      p.nickname,
+      p.namePrefix,
+      p.surnamePrefix,
+      p.nameSuffix,
+      ...(p.transliterations || []),
+      p.marriedSurname,
+      p.birthSurname,
+      ...p.alternateNames,
+      p.birth?.date,
+      p.birth?.place,
+      p.death?.date,
+      p.death?.place,
+      p.id,
+    ].filter(Boolean).join(' '));
   }
   for (const f of Object.values(families)) {
     f.notes = resolveNotes(f.notes);

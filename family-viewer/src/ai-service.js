@@ -11,6 +11,8 @@ import {
   extractHebrewDateHints,
   repairTruncatedJson,
 } from './gedcom-ai-editor.js';
+import { getRelations } from './gedcom.js';
+import { SCALAR_EVENT_DEFINITIONS, SCALAR_ATTRIBUTE_DEFINITIONS } from './gedcom-tags.js';
 import { isLocalAiAvailable, promptLocalAi, getLocalAiProgress } from './local-ai-provider.js';
 import { isOllamaAvailable, promptOllama, getOllamaModel } from './ollama-ai-provider.js';
 import {
@@ -34,13 +36,67 @@ import {
 } from './openrouter-ai-provider.js';
 
 const PREFERRED_CLOUD_KEY = 'anafim_preferred_ai_provider';
+const AI_CONFIGURED_KEY = 'anafim_ai_configured';
+
+function getStorage() {
+  try {
+    return (
+      (typeof window !== 'undefined' && window.localStorage) ||
+      (typeof globalThis !== 'undefined' && globalThis.window?.localStorage) ||
+      (typeof localStorage !== 'undefined' && localStorage) ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function hasConfiguredAi() {
+  try {
+    if (isOpenRouterAvailable() || isGeminiAvailable()) return true;
+    const storage = getStorage();
+    if (!storage) return false;
+    const flag = (storage.getItem(AI_CONFIGURED_KEY) || '').trim();
+    if (flag === '1' || flag === 'cloud' || flag === 'local') return true;
+    if (storage.getItem('anafim_ollama_enabled') === '1' || Boolean((storage.getItem('anafim_ollama_url') || '').trim())) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function markAiConfigured(mode = 'cloud') {
+  try {
+    const storage = getStorage();
+    if (!storage) return;
+    if (!mode) {
+      storage.removeItem(AI_CONFIGURED_KEY);
+      return;
+    }
+    const val = mode === true ? '1' : String(mode).trim();
+    storage.setItem(AI_CONFIGURED_KEY, val || '1');
+  } catch {}
+}
+
+export function clearAiConfiguration() {
+  try {
+    getStorage()?.removeItem(AI_CONFIGURED_KEY);
+  } catch {}
+}
+
+export function getDefaultEditMode() {
+  return hasConfiguredAi() ? 'ai' : 'manual';
+}
+
+export function shouldShowAiSettingsByDefault() {
+  return !hasConfiguredAi();
+}
 
 export function getPreferredCloudProvider() {
   try {
-    const storage =
-      (typeof window !== 'undefined' && window.localStorage) ||
-      (typeof localStorage !== 'undefined' && localStorage) ||
-      null;
+    const storage = getStorage();
     const val = (storage?.getItem(PREFERRED_CLOUD_KEY) || '').trim();
     return val === 'openrouter' || val === 'gemini' ? val : '';
   } catch {
@@ -50,10 +106,7 @@ export function getPreferredCloudProvider() {
 
 export function setPreferredCloudProvider(providerId) {
   try {
-    const storage =
-      (typeof window !== 'undefined' && window.localStorage) ||
-      (typeof localStorage !== 'undefined' && localStorage) ||
-      null;
+    const storage = getStorage();
     if (!storage) return;
     if (providerId === 'openrouter' || providerId === 'gemini') {
       storage.setItem(PREFERRED_CLOUD_KEY, providerId);
@@ -174,69 +227,46 @@ export async function getActiveAiProvider() {
   };
 }
 
-function extractCurrentPersonFields(person = {}) {
+export function extractCurrentPersonFields(person = {}) {
   const findEvent = tag => [...(person.events || [])].reverse().find(e => e.type === tag);
   const findAttr = tag => (person.attributes || []).find(a => a.type === tag)?.value || '';
-  const resi = findEvent('RESI');
-  const buri = findEvent('BURI');
-  const immi = findEvent('IMMI');
-  const emig = findEvent('EMIG');
-  const natu = findEvent('NATU');
-  const barm = findEvent('BARM');
-  const basm = findEvent('BASM');
-  const bapm = findEvent('BAPM');
-  const grad = findEvent('GRAD');
-  const reti = findEvent('RETI');
-  const crem = findEvent('CREM');
-  return {
+
+  const fields = {
     id: person.id,
     givenName: person.given || '',
     surname: person.surname || '',
     name: person.name || '',
+    nickname: person.nickname || '',
+    namePrefix: person.namePrefix || '',
+    surnamePrefix: person.surnamePrefix || '',
+    nameSuffix: person.nameSuffix || '',
+    birthSurname: person.birthSurname || '',
+    marriedSurname: person.marriedSurname || '',
     alternateNames: person.alternateNames || [],
     sex: person.sex || 'U',
-    birthDate: person.birth?.date || '',
-    birthPlace: person.birth?.place || '',
-    deathDate: person.death?.date || '',
-    deathPlace: person.death?.place || '',
     deathCause: person.death?.cause || '',
-    burialDate: buri?.date || '',
-    burialPlace: buri?.place || '',
-    cremationDate: crem?.date || '',
-    cremationPlace: crem?.place || '',
-    immigrationDate: immi?.date || '',
-    immigrationPlace: immi?.place || '',
-    emigrationDate: emig?.date || '',
-    emigrationPlace: emig?.place || '',
-    naturalizationDate: natu?.date || '',
-    naturalizationPlace: natu?.place || '',
-    barMitzvahDate: barm?.date || '',
-    barMitzvahPlace: barm?.place || '',
-    batMitzvahDate: basm?.date || '',
-    batMitzvahPlace: basm?.place || '',
-    baptismDate: bapm?.date || '',
-    baptismPlace: bapm?.place || '',
-    graduationDate: grad?.date || '',
-    graduationPlace: grad?.place || '',
-    retirementDate: reti?.date || '',
-    retirementPlace: reti?.place || '',
-    residenceDate: resi?.date || '',
-    residencePlace: resi?.place || resi?.detail || '',
     occupation: person.occupation || '',
-    education: findAttr('EDUC'),
-    title: findAttr('TITL'),
-    religion: findAttr('RELI'),
-    nationality: findAttr('NATI'),
-    description: findAttr('DSCR'),
-    idNumber: findAttr('IDNO'),
     notes: person.notes || [],
   };
+
+  for (const def of SCALAR_EVENT_DEFINITIONS) {
+    const ev = findEvent(def.tag);
+    fields[`${def.prefix}Date`] = ev?.date || '';
+    fields[`${def.prefix}Place`] = ev?.place || (def.tag === 'RESI' ? ev?.detail || '' : '');
+  }
+
+  for (const def of SCALAR_ATTRIBUTE_DEFINITIONS) {
+    if (def.fieldKey === 'occupation') continue;
+    fields[def.fieldKey] = findAttr(def.tag);
+  }
+
+  return fields;
 }
 
 /**
  * Builds the genealogy-expert prompt instructing the AI to output only valid JSON.
  */
-export function buildPrompt(person, freeText) {
+export function buildPrompt(person, freeText, { data = null } = {}) {
   const fullInfo = extractCurrentPersonFields(person);
   // Keep prompt compact for small models: omit empty optional fields while always including core identity
   const coreKeys = new Set(['id', 'givenName', 'surname', 'name', 'sex', 'birthDate', 'birthPlace', 'deathDate', 'deathPlace', 'occupation', 'notes']);
@@ -246,70 +276,58 @@ export function buildPrompt(person, freeText) {
     if (coreKeys.has(k) || nonEmpty) currentInfo[k] = v;
   }
 
+  let familyBlock = '';
+  if (data && person?.id && data.people?.[person.id]) {
+    const rels = getRelations(data, person.id);
+    const immediateFamily = {
+      parents: rels.parents.map(p => ({ id: p.id, name: p.name, sex: p.sex || 'U' })),
+      spouses: rels.partners.map(p => ({
+        id: p.id,
+        name: p.name,
+        sex: p.sex || 'U',
+        familyId: p.family?.id || '',
+        marriageDate: p.family?.marriage?.date || '',
+      })),
+      children: rels.children.map(p => ({ id: p.id, name: p.name, sex: p.sex || 'U' })),
+      siblings: rels.siblings.map(p => ({ id: p.id, name: p.name, sex: p.sex || 'U', half: Boolean(p.half) })),
+    };
+    familyBlock = `\nCurrent immediate family in tree:\n${JSON.stringify(immediateFamily, null, 2)}\n`;
+  }
+
   const hebrewHints = extractHebrewDateHints(String(freeText || ''));
   const hebrewHintBlock = hebrewHints.length
     ? `\nHebrew calendar conversions for dates in the user text (use these EXACT Gregorian GEDCOM dates, do NOT guess):\n${hebrewHints.map(h => `- "${h.phrase}" => "${h.gedcom}"`).join('\n')}\n`
     : '';
 
   return `You are a genealogy data assistant specializing in the GEDCOM 5.5 / 5.5.1 / 7 standard.
-Your task is to analyze user-provided free-text (which may be in Hebrew, English, or mixed) describing updates or new information for a SPECIFIC individual person in the family tree.
+Your task is to analyze user-provided free-text (which may be in Hebrew, English, or mixed) describing updates to a SPECIFIC individual person in the family tree AND/OR new family members (parents, spouses, children, siblings) or family events mentioned in relation to this person.
 
 CRITICAL RULES:
-1. You must ONLY update or add information for this specific person.
+1. Update the focal person's own details AND extract any newly mentioned relatives into "relatives" and marriage/divorce/family events into "familyEvents".
 2. Output MUST be ONLY a single valid JSON object, with NO surrounding explanation, NO markdown formatting.
-3. ONLY include fields that are NEW or CHANGED by the user's text. NEVER repeat unchanged fields from Current person data (do NOT echo givenName, surname, or sex unless the user explicitly asked to change them).
+3. ONLY include fields that are NEW or CHANGED by the user's text. NEVER repeat unchanged fields from Current person data (do NOT echo givenName, surname, or sex unless explicitly asked to change them). Never duplicate relatives already listed in Current immediate family in tree unless linking them explicitly with existingPersonId or adding new facts.
 4. NEVER copy the user's sentence into "description" (which is ONLY for physical appearance like height or eye color) and do NOT duplicate structured facts into "notes".
 5. Dates should be standardized GEDCOM dates (e.g., "15 MAY 1920", "1985", "OCT 1944", "ABT 1930"). If Hebrew calendar conversions are listed below, use those exact Gregorian dates.
 6. Allowed JSON fields (ONLY include fields explicitly stated in the user's text):
-   - "givenName": string (e.g. "אברהם")
-   - "surname": string (e.g. "כהן")
-   - "nickname": string (e.g. "אבי")
-   - "alternateNames": array of strings (שמות חלופיים/נוספים, e.g. ["אברהם יוסף כהן", "Abe Cohen"])
-   - "sex": "M" or "F" or "U"
-   - "birthDate": string (e.g. "12 JAN 1910")
-   - "birthPlace": string (e.g. "ירושלים, ישראל" or "Warsaw, Poland")
-   - "deathDate": string (e.g. "1980")
-   - "deathPlace": string
-   - "deathCause": string
-   - "burialDate": string (קבורה, BURI)
-   - "burialPlace": string (מקום קבורה / בית עלמין)
-   - "cremationDate": string (שריפת גופה, CREM)
-   - "cremationPlace": string
-   - "immigrationDate": string (עלייה / הגירה, IMMI)
-   - "immigrationPlace": string (יעד עלייה)
-   - "emigrationDate": string (הגירה החוצה, EMIG)
-   - "emigrationPlace": string
-   - "naturalizationDate": string (התאזרחות, NATU)
-   - "naturalizationPlace": string
-   - "barMitzvahDate": string (בר מצווה, BARM)
-   - "barMitzvahPlace": string
-   - "batMitzvahDate": string (בת מצווה, BASM)
-   - "batMitzvahPlace": string
-   - "baptismDate": string (טבילה, BAPM)
-   - "baptismPlace": string
-   - "graduationDate": string (סיום לימודים, GRAD)
-   - "graduationPlace": string
-   - "retirementDate": string (פרישה, RETI)
-   - "retirementPlace": string
-   - "occupation": string (מקצוע / עיסוק, e.g. "נגר")
-   - "education": string (השכלה)
-   - "residencePlace": string (מקום מגורים)
-   - "residenceDate": string (תאריך מגורים)
-   - "title": string (תואר, TITL, e.g. "הרב", "ד״ר", "פרופ'")
-   - "religion": string (דת, RELI, e.g. "יהדות")
-   - "nationality": string (לאום / אזרחות, NATI, e.g. "ישראלי")
-   - "description": string (תיאור פיזי בלבד — גובה/עיניים/שיער, DSCR)
-   - "idNumber": string (מספר תעודת זהות / זיהוי רשמי, IDNO)
-   - "notes": array of strings (only extra biographical facts not covered above)
-   - "source": string (מקור המידע, e.g. "ספר זיכרון משפחתי" or "עדות של דוד משה")
+   - Person identity & names: "givenName", "surname", "nickname", "namePrefix", "surnamePrefix", "nameSuffix", "birthSurname", "marriedSurname", "alternateNames" (string[]), "sex" ("M"|"F"|"U")
+   - Core events (Date & Place pairs): "birthDate", "birthPlace", "deathDate", "deathPlace", "deathCause", "burialDate", "burialPlace", "cremationDate", "cremationPlace", "residenceDate", "residencePlace", "immigrationDate", "immigrationPlace", "emigrationDate", "emigrationPlace", "naturalizationDate", "naturalizationPlace", "barMitzvahDate", "barMitzvahPlace", "batMitzvahDate", "batMitzvahPlace", "baptismDate", "baptismPlace", "christeningDate", "christeningPlace", "adultChristeningDate", "adultChristeningPlace", "adoptionDate", "adoptionPlace", "blessingDate", "blessingPlace", "confirmationDate", "confirmationPlace", "firstCommunionDate", "firstCommunionPlace", "ordinationDate", "ordinationPlace", "censusDate", "censusPlace", "probateDate", "probatePlace", "willDate", "willPlace", "graduationDate", "graduationPlace", "retirementDate", "retirementPlace", "militaryDate", "militaryPlace", "circumcisionDate", "circumcisionPlace"
+   - Attributes, contact & metadata: "occupation", "education", "title" (TITL), "religion" (RELI), "nationality" (NATI), "description" (physical DSCR only), "idNumber" (IDNO), "caste" (CAST), "property" (PROP), "ssn" (SSN), "childrenCount" (NCHI), "marriageCount" (NMR), "phone" (PHON), "email" (EMAIL), "website" (WWW), "fax" (FAX), "address" (ADDR), "referenceNumber" (REFN), "uid" (UID), "externalId" (EXID), "afn" (AFN), "rfn" (RFN), "restriction" (RESN), "alias" (ALIA)
+   - Notes & source: "notes" (string[]), "source" (string, מקור המידע)
+   - "events": array of { "tag": GEDCOM_TAG (e.g. "RESI", "EVEN", "CENS", "ORDN", "PROB", "WILL", "_MILT", "NO"), "type"?: string, "date"?: string, "place"?: string, "detail"?: string, "cause"?: string, "address"?: string, "agency"?: string, "age"?: string, "religion"?: string, "note"?: string }
+   - "attributes": array of { "tag": GEDCOM_TAG (e.g. "FACT", "PROP", "CAST", "EDUC", "PHON", "EMAIL", "WWW", "ADDR", "RESN"), "type"?: string, "value": string, "date"?: string, "place"?: string, "note"?: string }
+   - "familyEvents": array of { "tag": "MARR"|"DIV"|"DIVF"|"ENGA"|"ANUL"|"MARB"|"MARC"|"MARL"|"MARS"|"RESI"|"CENS"|"EVEN"|"FACT"|"NCHI"|"SLGS"|"NO", "partnerName"?: string, "familyId"?: string, "type"?: string, "date"?: string, "place"?: string, "detail"?: string, "note"?: string }
+   - "relatives": array of family members to ADD or LINK:
+     { "relation": "father"|"mother"|"parent"|"husband"|"wife"|"spouse"|"son"|"daughter"|"child"|"brother"|"sister"|"sibling", "givenName": string, "surname"?: string, "sex"?: "M"|"F"|"U", "birthDate"?: string, "birthPlace"?: string, "deathDate"?: string, "deathPlace"?: string, "occupation"?: string, "notes"?: string[], "marriageDate"?: string, "marriagePlace"?: string, "divorceDate"?: string, "divorcePlace"?: string, "engagementDate"?: string, "engagementPlace"?: string, "otherParentName"?: string, "pedigree"?: "birth"|"adopted"|"foster"|"sealing", "existingPersonId"?: string }
 
-Example:
-User's input text: "נולד ב-1920 בוורשה, היה נגר ונפטר בתש\"ח בירושלים"
-Output: {"birthDate":"1920","birthPlace":"וורשה","occupation":"נגר","deathDate":"1948","deathPlace":"ירושלים"}
+Examples:
+1) Input: "נולד ב-1920 בוורשה, היה נגר ונפטר בתש\"ח בירושלים"
+   Output: {"birthDate":"1920","birthPlace":"וורשה","occupation":"נגר","deathDate":"1948","deathPlace":"ירושלים"}
+2) Input: "התחתן עם שרה לוי ב-1950 בחיפה, ונולדו להם בן דני ב-1952 ובת רותי ב-1955"
+   Output: {"relatives":[{"relation":"wife","givenName":"שרה","surname":"לוי","marriageDate":"1950","marriagePlace":"חיפה"},{"relation":"son","givenName":"דני","birthDate":"1952","otherParentName":"שרה לוי"},{"relation":"daughter","givenName":"רותי","birthDate":"1955","otherParentName":"שרה לוי"}]}
 
 Current person data in tree:
 ${JSON.stringify(currentInfo, null, 2)}
-${hebrewHintBlock}
+${familyBlock}${hebrewHintBlock}
 User's input text to apply:
 "${String(freeText || '').trim()}"
 
@@ -342,9 +360,9 @@ function normalizeAiText(value) {
 export async function analyzePersonTextWithAi(
   person,
   freeText,
-  { devMode = false, onProgress, provider } = {}
+  { devMode = false, onProgress, provider, data = null } = {}
 ) {
-  const prompt = buildPrompt(person, freeText);
+  const prompt = buildPrompt(person, freeText, { data });
 
   let rawResponse = '';
   let session = null;
@@ -482,14 +500,47 @@ export async function analyzePersonTextWithAi(
 
   // Deterministic safeguard: if the user wrote a Hebrew calendar date/year (e.g. תשי"ב -> 1952)
   // and a small model still guessed a wrong Gregorian year (e.g. 1944) not present in freeText,
-  // replace that guessed date with the exact deterministic Hebrew conversion.
+  // replace that guessed date with the exact deterministic Hebrew conversion across focal fields,
+  // structured events, familyEvents, and relatives.
   const hebrewHints = extractHebrewDateHints(String(freeText || ''));
   if (hebrewHints.length && parsedJson && typeof parsedJson === 'object') {
-    const dateKeys = Object.keys(parsedJson).filter(k => k.endsWith('Date') && typeof parsedJson[k] === 'string');
+    const dateTargets = [];
+    for (const k of Object.keys(parsedJson)) {
+      if (k.endsWith('Date') && typeof parsedJson[k] === 'string') {
+        dateTargets.push({ obj: parsedJson, key: k });
+      }
+    }
+    for (const arrKey of ['events', 'familyEvents']) {
+      if (Array.isArray(parsedJson[arrKey])) {
+        for (const ev of parsedJson[arrKey]) {
+          if (ev && typeof ev === 'object' && typeof ev.date === 'string') {
+            dateTargets.push({ obj: ev, key: 'date' });
+          }
+        }
+      }
+    }
+    if (Array.isArray(parsedJson.relatives)) {
+      for (const rel of parsedJson.relatives) {
+        if (!rel || typeof rel !== 'object') continue;
+        for (const k of Object.keys(rel)) {
+          if (k.endsWith('Date') && typeof rel[k] === 'string') {
+            dateTargets.push({ obj: rel, key: k });
+          }
+        }
+        if (Array.isArray(rel.events)) {
+          for (const ev of rel.events) {
+            if (ev && typeof ev === 'object' && typeof ev.date === 'string') {
+              dateTargets.push({ obj: ev, key: 'date' });
+            }
+          }
+        }
+      }
+    }
+
     const explicitYearsInText = new Set([...String(freeText).matchAll(/\b(\d{3,4})\b/g)].map(m => m[1]));
-    const formattedDates = new Map(dateKeys.map(k => [k, formatToGedcomDate(parsedJson[k])]));
+    const formattedDates = dateTargets.map(t => formatToGedcomDate(t.obj[t.key]));
     const usedHints = new Set();
-    for (const val of formattedDates.values()) {
+    for (const val of formattedDates) {
       for (const h of hebrewHints) {
         if (val === h.gedcom) usedHints.add(h.gedcom);
       }
@@ -497,21 +548,21 @@ export async function analyzePersonTextWithAi(
     const unusedHints = hebrewHints.filter(h => !usedHints.has(h.gedcom));
     if (unusedHints.length) {
       let hintIdx = 0;
-      for (const key of dateKeys) {
-        if (hintIdx >= unusedHints.length) break;
-        const formatted = formattedDates.get(key) || '';
+      for (let i = 0; i < dateTargets.length && hintIdx < unusedHints.length; i++) {
+        const formatted = formattedDates[i] || '';
         const yearMatch = formatted.match(/\b(\d{3,4})\b/);
         const year = yearMatch ? yearMatch[1] : '';
-        // If this date's year was NOT explicitly typed in freeText and doesn't match any valid Hebrew hint,
-        // it is almost certainly a hallucinated Hebrew->Gregorian conversion.
         if (year && !explicitYearsInText.has(year) && !usedHints.has(formatted)) {
-          parsedJson[key] = unusedHints[hintIdx++].gedcom;
+          dateTargets[i].obj[dateTargets[i].key] = unusedHints[hintIdx++].gedcom;
         }
       }
     }
   }
 
-  const validation = validatePersonUpdates(parsedJson, currentPerson);
+  const validation = validatePersonUpdates(parsedJson, currentPerson, {
+    data,
+    personId: person?.id || null,
+  });
 
   if (devMode) {
     console.log('[AI Editor] Validation result:', validation.valid ? 'VALID' : 'INVALID');

@@ -74,8 +74,15 @@ export function setOpenRouterApiKey(key) {
     const clean = (key || '').trim();
     if (clean) {
       storage.setItem(API_KEY_STORAGE, clean);
+      storage.setItem('anafim_ai_configured', 'cloud');
     } else {
       storage.removeItem(API_KEY_STORAGE);
+      if (
+        !(storage.getItem('anafim_gemini_api_key') || '').trim() &&
+        storage.getItem('anafim_ai_configured') === 'cloud'
+      ) {
+        storage.removeItem('anafim_ai_configured');
+      }
     }
   } catch (err) {
     console.warn('[OpenRouter AI] Failed to save API key to localStorage:', err);

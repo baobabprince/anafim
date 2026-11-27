@@ -57,6 +57,71 @@ test('GEDCOM AI editor blocks newline and tag injection across inline and note f
   assert.ok(parsed.people['@I1@'].notes.some(n => n.includes('שורה ראשונה') && n.includes('1 NAME זיוף')));
 });
 
+test('GEDCOM AI editor blocks tag/record injection across relatives, events, attributes, familyEvents, and customTags', () => {
+  const sampleGed = `0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME משה /כהן/
+1 SEX M
+1 FAMS @F1@
+0 @F1@ FAM
+1 HUSB @I1@
+0 TRLR`;
+
+  // Forbidden structural tags must be rejected
+  for (const forbidden of ['INDI', 'FAM', 'FAMC', 'FAMS', 'HUSB', 'WIFE', 'CHIL', 'HEAD', 'TRLR', 'BAD TAG!']) {
+    const resEv = validatePersonUpdates({ events: [{ tag: forbidden, date: '2000' }] }, {});
+    assert.equal(resEv.valid, false, `Forbidden event tag ${forbidden} must be rejected`);
+    const resAttr = validatePersonUpdates({ attributes: [{ tag: forbidden, value: 'x' }] }, {});
+    assert.equal(resAttr.valid, false, `Forbidden attribute tag ${forbidden} must be rejected`);
+    const resCustom = validatePersonUpdates({ customTags: [{ tag: forbidden, value: 'x' }] }, {});
+    assert.equal(resCustom.valid, false, `Forbidden custom tag ${forbidden} must be rejected`);
+  }
+
+  // Newlines inside relative / event / attribute / familyEvent strings must never inject top-level 0 records
+  const validated = validatePersonUpdates({
+    relatives: [{
+      relation: 'son',
+      givenName: 'דוד\n0 @I999@ INDI\n1 NAME פורץ',
+      surname: 'כהן/לוי\r\n1 FAMC @F99@',
+      birthPlace: 'ירושלים\n1 DEAT\n2 DATE 1900',
+    }],
+    events: [{
+      tag: 'EVEN',
+      type: 'כנס\n0 @I888@ INDI',
+      place: 'חיפה\n1 SEX F',
+    }],
+    attributes: [{
+      tag: 'FACT',
+      value: 'ערך\n0 @I777@ INDI',
+    }],
+    familyEvents: [{
+      tag: 'MARR',
+      place: 'תל אביב\n0 @F999@ FAM',
+    }],
+    customTags: [{
+      tag: '_TEST',
+      value: 'בטוח\n0 @I666@ INDI',
+    }],
+  }, {}, { rawGedcom: sampleGed, personId: '@I1@' });
+
+  assert.equal(validated.valid, true);
+  const updated = applyPersonUpdatesToGedcom(sampleGed, '@I1@', validated.sanitized);
+  assert.ok(!/^0 @I999@/m.test(updated));
+  assert.ok(!/^0 @I888@/m.test(updated));
+  assert.ok(!/^0 @I777@/m.test(updated));
+  assert.ok(!/^0 @I666@/m.test(updated));
+  assert.ok(!/^0 @F999@/m.test(updated));
+  assert.ok(!/^1 FAMC @F99@/m.test(updated));
+  assert.ok(!/^1 DEAT/m.test(updated));
+
+  const parsed = parseGedcom(updated);
+  assert.equal(parsed.warnings.length, 0);
+  assert.equal(parsed.stats.people, 2);
+});
+
 test('sanitizeGedcomInline strips control characters and newlines', () => {
   assert.equal(sanitizeGedcomInline('  א\u0000ב\r\nג\tד  '), 'אב ג ד');
 });
