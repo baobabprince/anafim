@@ -3,7 +3,7 @@
  * Safely parses, validates, and updates individual (INDI) and family (FAM) records within a raw GEDCOM string.
  */
 
-import { parseGedcom, normalize } from './gedcom.js';
+import { parseGedcom, normalize, getRelations } from './gedcom.js';
 import {
   FAM_EVENT_TAGS,
   SINGLETON_EVENT_TAGS,
@@ -521,10 +521,41 @@ function cleanStructuredObject(item) {
   return Object.keys(cleanedItem).length ? cleanedItem : null;
 }
 
+/** Common model aliases mapped onto canonical relative keys. */
+const RELATIVE_KEY_ALIASES = { relationship: 'relation', fullName: 'name' };
+
+/**
+ * Cleans one AI-produced relative entry: drops empty values, maps common model
+ * aliases (`relationship` -> `relation`, `fullName` -> `name`) and removes keys
+ * that are not part of the relatives schema — a single unknown key would fail
+ * validation and invalidate the whole batch.
+ */
+function cleanRelativeItem(item) {
+  const base = cleanStructuredObject(item);
+  if (!base) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(base)) {
+    let key = k;
+    if (
+      !RELATIVE_ALLOWED_KEYS.has(key) &&
+      RELATIVE_KEY_ALIASES[k] &&
+      base[RELATIVE_KEY_ALIASES[k]] === undefined &&
+      out[RELATIVE_KEY_ALIASES[k]] === undefined
+    ) {
+      key = RELATIVE_KEY_ALIASES[k];
+    }
+    if (!RELATIVE_ALLOWED_KEYS.has(key)) continue;
+    if (out[key] === undefined) out[key] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /**
  * Cleans raw AI output before validation:
  * - Drops empty values and unknown keys (small models often emit empty strings or "name").
  * - Normalizes `facts` -> `attributes` and `addRelatives` -> `relatives`.
+ * - Coerces a single structured object into a one-element array (small models often
+ *   return `relatives: {...}` instead of `relatives: [...]`).
  * - When `currentPerson` is provided, drops unchanged no-op fields (e.g. echoing existing givenName/surname/sex).
  * - When `freeText` is provided, drops `description` (DSCR) if it merely echoes the user's biographical sentence.
  */
@@ -541,11 +572,20 @@ export function cleanAiUpdates(updates, { currentPerson = null, freeText = '' } 
     }
 
     if (STRUCTURED_ARRAY_KEYS.has(key)) {
+      let rawItems = value;
       if (!Array.isArray(value)) {
-        dropped.push(key);
-        continue;
+        // Small models often emit a single object instead of a one-element array.
+        if (isPlainObject(value)) {
+          rawItems = [value];
+        } else {
+          dropped.push(key);
+          continue;
+        }
       }
-      const cleanedItems = value.map(cleanStructuredObject).filter(Boolean);
+      const isRelatives = key === 'relatives' || key === 'addRelatives';
+      const cleanedItems = rawItems
+        .map(item => (isRelatives ? cleanRelativeItem(item) : cleanStructuredObject(item)))
+        .filter(Boolean);
       if (!cleanedItems.length) {
         dropped.push(key);
         continue;
@@ -585,6 +625,134 @@ export function cleanAiUpdates(updates, { currentPerson = null, freeText = '' } 
     cleaned[key] = value;
   }
   return { cleaned, dropped };
+}
+
+const XREF_PATTERN = /^@[^@\s]+@$/;
+
+/**
+ * Deterministically links AI-proposed relatives to people that already exist in
+ * the tree so free-text updates extend an existing person instead of creating a
+ * duplicate. For every relative:
+ *  - drops hallucinated / self / unknown `existingPersonId` values the model invented;
+ *  - matches the relative's name against the tree (unique normalized match, focal
+ *    person excluded) and sets `existingPersonId` when the match is unambiguous;
+ *  - refuses links that would create ancestor/descendant/sibling/spouse cycles or
+ *    attach a tree individual to the focal person in a conflicting role;
+ *  - drops `otherParentId` / `halfParentId` / `targetFamilyId` references that do
+ *    not resolve against the tree.
+ *
+ * Name fields are intentionally KEPT on the relative so UI previews can still
+ * show them and the user can switch to "create new person"; identity fields are
+ * stripped later, at apply time (see applyRelativeAddition).
+ *
+ * Returns `{ relatives, linked }` where `linked` lists
+ * `{ id, name, relation, via: 'model' | 'name' }`.
+ */
+export function linkRelativesToExistingPeople(relatives, data, focalPersonId = '') {
+  const out = { relatives: Array.isArray(relatives) ? relatives : [], linked: [] };
+  if (!data?.people || !out.relatives.length) return out;
+
+  const focal = String(focalPersonId || '').trim();
+  const focalInTree = Boolean(focal && data.people[focal]);
+
+  // Roles tree individuals already hold relative to the focal person.
+  const relatedRoles = new Map(); // personId -> Set(category)
+  if (focalInTree) {
+    const rels = getRelations(data, focal);
+    const add = (arr, cat) => {
+      for (const p of arr || []) {
+        if (!p?.id) continue;
+        if (!relatedRoles.has(p.id)) relatedRoles.set(p.id, new Set());
+        relatedRoles.get(p.id).add(cat);
+      }
+    };
+    add(rels.parents, 'parent');
+    add(rels.partners, 'spouse');
+    add(rels.children, 'child');
+    add(rels.siblings, 'sibling');
+  }
+
+  const usedIds = new Set();
+  const canLinkAs = (pid, cat) => {
+    if (!focalInTree || pid === focal) return false;
+    if (cat === 'parent' && isDescendantInData(data, focal, pid)) return false;
+    if (cat === 'child' && isAncestorInData(data, focal, pid)) return false;
+    if (cat === 'sibling' && (isAncestorInData(data, focal, pid) || isDescendantInData(data, focal, pid))) return false;
+    if (cat === 'spouse' && (isAncestorInData(data, focal, pid) || isDescendantInData(data, focal, pid))) return false;
+    const roles = relatedRoles.get(pid);
+    if (cat && roles && [...roles].some(r => r !== cat)) return false; // already related in a different role
+    return true;
+  };
+
+  for (const rel of out.relatives) {
+    if (!rel || typeof rel !== 'object') continue;
+    const cat = relationCategory(rel.relation);
+
+    // 1) Keep a usable id supplied by the model; drop invented ones.
+    if (rel.existingPersonId) {
+      const id = sanitizeGedcomInline(rel.existingPersonId);
+      const exists = XREF_PATTERN.test(id) && Boolean(data.people[id]);
+      const usable = exists && id !== focal && !usedIds.has(id) && (focalInTree ? canLinkAs(id, cat) : true);
+      if (usable) {
+        rel.existingPersonId = id;
+        usedIds.add(id);
+        out.linked.push({ id, name: data.people[id].name || '', relation: rel.relation, via: 'model' });
+        continue;
+      }
+      delete rel.existingPersonId; // fall through to name matching
+    }
+
+    // 2) Unique name match against the tree.
+    if (!cat || !focalInTree) continue;
+    let relGiven = normalize(rel.givenName || '');
+    let relSurn = normalize(rel.surname || '');
+    if (!relGiven && !relSurn && typeof rel.name === 'string') {
+      const split = splitNameString(rel.name);
+      relGiven = normalize(split.givenName);
+      relSurn = normalize(split.surname);
+    }
+    const target = [relGiven, relSurn].filter(Boolean).join(' ');
+    if (!target) continue;
+
+    const matches = [];
+    for (const [pid, p] of Object.entries(data.people)) {
+      if (!p || pid === focal || usedIds.has(pid)) continue;
+      const pGiven = normalize(p.given || '');
+      const pSurn = normalize(p.surname || '');
+      const pFull = normalize(p.name || [p.given, p.surname].filter(Boolean).join(' '));
+      let hit = false;
+      if (pFull === target) hit = true;
+      // Model returned only a first name — match a unique tree given name.
+      else if (relGiven && !relSurn && pGiven && pGiven === relGiven) hit = true;
+      // Parts match although the stored full name carries an extra prefix/suffix.
+      else if (relGiven && relSurn && pGiven === relGiven && pSurn && pSurn === relSurn) hit = true;
+      if (hit) matches.push(pid);
+    }
+    if (matches.length !== 1) continue; // none or ambiguous — leave for the user
+    const pid = matches[0];
+    if (!canLinkAs(pid, cat)) continue;
+    rel.existingPersonId = pid;
+    usedIds.add(pid);
+    out.linked.push({ id: pid, name: data.people[pid].name || '', relation: rel.relation, via: 'name' });
+  }
+
+  // 3) Drop family/person references that do not resolve against the tree.
+  for (const rel of out.relatives) {
+    if (!rel || typeof rel !== 'object') continue;
+    for (const key of ['otherParentId', 'halfParentId']) {
+      if (!rel[key]) continue;
+      const id = sanitizeGedcomInline(rel[key]);
+      if (!XREF_PATTERN.test(id) || !data.people[id] || id === focal) delete rel[key];
+      else rel[key] = id;
+    }
+    if (rel.targetFamilyId) {
+      const id = sanitizeGedcomInline(rel.targetFamilyId);
+      if (!XREF_PATTERN.test(id) || !data.families?.[id]) delete rel.targetFamilyId;
+      else rel.targetFamilyId = id;
+    }
+  }
+
+  return out;
 }
 
 /**
@@ -2039,6 +2207,14 @@ function applyRelativeAddition(rawGedcom, focalPersonId, rel, report) {
       throw new Error('לא ניתן לקשר הורה, אב קדמון או צאצא כאח/ות (יוצר קשר מעגלי באילן).');
     }
     const personUpdates = extractRelativePersonUpdates(rel);
+    // Linking to an existing person must never rewrite their identity —
+    // keep only new facts. Primary name parts are stripped so a rebuild of the
+    // NAME line cannot drop prefixes/suffixes, and sex stays untouched when the
+    // tree already records it (M/F), so an inferred value cannot corrupt it.
+    delete personUpdates.givenName;
+    delete personUpdates.surname;
+    const existingSex = getPersonSexFromRaw(nextRaw, memberId);
+    if (existingSex === 'M' || existingSex === 'F') delete personUpdates.sex;
     if (Object.keys(personUpdates).length > 0) {
       const updatedExisting = updatePersonRecord(existingRange.rawBlock, personUpdates, memberId);
       nextRaw = replaceRecordRange(nextRaw, existingRange, updatedExisting);
