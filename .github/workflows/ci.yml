@@ -15,6 +15,10 @@ on:
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     defaults:
       run:
         working-directory: family-viewer
@@ -44,12 +48,43 @@ jobs:
 
       # Live API coverage for free-text family-member addition. The key comes
       # from the OPENROUTER_API_KEY repository secret; without it these tests
-      # skip. Non-blocking: free-model API flakiness must not fail CI.
+      # skip. Non-blocking: free-model API flakiness must not fail CI. The full
+      # TAP output is posted (and updated in place) on the pull request so the
+      # live results can be reviewed without digging through Actions logs.
       - name: Run live OpenRouter AI tests (family addition)
         continue-on-error: true
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: node --test tests/openrouter-live.test.js
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          node --test tests/openrouter-live.test.js > live-tests.log 2>&1
+          status=$?
+          set -e
+          {
+            echo "<!-- live-openrouter-tests -->"
+            echo "## Live OpenRouter AI tests (family addition)"
+            echo ""
+            if [ -z "$OPENROUTER_API_KEY" ]; then
+              echo "_Skipped: the \`OPENROUTER_API_KEY\` secret is not configured._"
+            else
+              echo "Workflow run: [${GITHUB_RUN_ID} attempt ${GITHUB_RUN_ATTEMPT}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) · model: \`${OPENROUTER_TEST_MODEL:-openrouter/free}\` · exit code: \`${status}\`"
+              echo ""
+              echo '```'
+              cat live-tests.log
+              echo '```'
+            fi
+          } > comment-body.md
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.event.number }}" ]; then
+            existing=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.number }}/comments" --paginate \
+              --jq '[.[] | select(.body | startswith("<!-- live-openrouter-tests -->")) | .id] | first' 2>/dev/null || true)
+            if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+              gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" -f body=@comment-body.md >/dev/null || true
+            else
+              gh pr comment "${{ github.event.number }}" --body-file comment-body.md || true
+            fi
+          fi
+          exit 0
 
       - name: Build production bundle
         run: npm run build
