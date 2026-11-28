@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- AI free-text family addition: the prompt now ships a compact whole-tree people index, a DEDUPLICATION critical rule (existing relative → `existingPersonId`, new facts only, never invented ids) and examples for "wife פלמונית + son אלמוני born 2022" — with and without an existing person.
+- New deterministic linker `linkRelativesToExistingPeople`: drops hallucinated/self/unknown `existingPersonId`, `otherParentId`, `halfParentId` and `targetFamilyId` references, links unambiguously-named existing people (unique full-name, given-only or embedded-part matches, focal excluded), and refuses ancestor/descendant/sibling/spouse cycles, role conflicts and double-linking the same person in one batch; results are exposed as `linkedRelatives` from `analyzePersonTextWithAi`.
+- `cleanAiUpdates` hardening for relative entries: a single structured object is coerced to a one-element array, common model aliases (`relationship`→`relation`, `fullName`→`name`) are mapped, and unknown per-relative keys are filtered so one stray key can no longer invalidate the whole batch.
+- Linking an existing relative never rewrites their identity: `givenName`/`surname` are stripped at apply time (no NAME-line rebuild, no prefix/suffix loss) and `sex` is kept when the tree records M/F — only new facts are merged.
+- Added mocked end-to-end family-addition tests (prompt contract, linker matrix, cleaning, analyze+apply) and key-gated live OpenRouter tests (`tests/openrouter-live.test.js`, skipped without `OPENROUTER_API_KEY`) plus a non-blocking CI step that runs them with the repository secret.
+
 ## 2.0.1 — 2026-10-18
 
 - Replaced header-first encoding guesses with a shared byte-based decoder: UTF-8/UTF-16 BOMs, structural BOM-less UTF-16, whole-file UTF-8 validation, legacy declarations and conservative damaged-UTF-8 handling.

@@ -10,6 +10,7 @@ import {
   cleanAiUpdates,
   extractHebrewDateHints,
   repairTruncatedJson,
+  linkRelativesToExistingPeople,
 } from './gedcom-ai-editor.js';
 import { getRelations } from './gedcom.js';
 import { SCALAR_EVENT_DEFINITIONS, SCALAR_ATTRIBUTE_DEFINITIONS } from './gedcom-tags.js';
@@ -294,6 +295,29 @@ export function buildPrompt(person, freeText, { data = null } = {}) {
     familyBlock = `\nCurrent immediate family in tree:\n${JSON.stringify(immediateFamily, null, 2)}\n`;
   }
 
+  // Compact whole-tree index so the model can dedup: if a relative already
+  // exists here, it must return that id as existingPersonId instead of a new person.
+  let peopleIndexBlock = '';
+  if (data?.people) {
+    const ids = Array.isArray(data.order) && data.order.length ? data.order : Object.keys(data.people);
+    const MAX_PEOPLE_INDEX = 300;
+    const indexLines = [];
+    for (const id of ids.slice(0, MAX_PEOPLE_INDEX)) {
+      const p = data.people[id];
+      if (!p) continue;
+      const year = String(p.birth?.date || '').match(/\b(\d{3,4})\b/)?.[1] || '';
+      const bits = [(p.sex === 'M' || p.sex === 'F') ? p.sex : '', year].filter(Boolean).join(', ');
+      indexLines.push(`${id}: ${p.name || ''}${bits ? ` (${bits})` : ''}`);
+    }
+    if (indexLines.length) {
+      const hidden = Math.max(0, ids.length - indexLines.length);
+      peopleIndexBlock =
+        `\nPeople already in the tree (dedup index — if a relative below already exists here, ` +
+        `return their id as "existingPersonId" instead of creating a new person):\n${indexLines.join('\n')}\n` +
+        (hidden ? `…and ${hidden} more people not listed.\n` : '');
+    }
+  }
+
   const hebrewHints = extractHebrewDateHints(String(freeText || ''));
   const hebrewHintBlock = hebrewHints.length
     ? `\nHebrew calendar conversions for dates in the user text (use these EXACT Gregorian GEDCOM dates, do NOT guess):\n${hebrewHints.map(h => `- "${h.phrase}" => "${h.gedcom}"`).join('\n')}\n`
@@ -317,17 +341,22 @@ CRITICAL RULES:
    - "attributes": array of { "tag": GEDCOM_TAG (e.g. "FACT", "PROP", "CAST", "EDUC", "PHON", "EMAIL", "WWW", "ADDR", "RESN"), "type"?: string, "value": string, "date"?: string, "place"?: string, "note"?: string }
    - "familyEvents": array of { "tag": "MARR"|"DIV"|"DIVF"|"ENGA"|"ANUL"|"MARB"|"MARC"|"MARL"|"MARS"|"RESI"|"CENS"|"EVEN"|"FACT"|"NCHI"|"SLGS"|"NO", "partnerName"?: string, "familyId"?: string, "type"?: string, "date"?: string, "place"?: string, "detail"?: string, "note"?: string }
    - "relatives": array of family members to ADD or LINK:
-     { "relation": "father"|"mother"|"parent"|"husband"|"wife"|"spouse"|"son"|"daughter"|"child"|"brother"|"sister"|"sibling", "givenName": string, "surname"?: string, "sex"?: "M"|"F"|"U", "birthDate"?: string, "birthPlace"?: string, "deathDate"?: string, "deathPlace"?: string, "occupation"?: string, "notes"?: string[], "marriageDate"?: string, "marriagePlace"?: string, "divorceDate"?: string, "divorcePlace"?: string, "engagementDate"?: string, "engagementPlace"?: string, "otherParentName"?: string, "pedigree"?: "birth"|"adopted"|"foster"|"sealing", "existingPersonId"?: string }
+     { "relation": "father"|"mother"|"parent"|"husband"|"wife"|"spouse"|"son"|"daughter"|"child"|"brother"|"sister"|"sibling", "givenName": string, "surname"?: string, "sex"?: "M"|"F"|"U", "birthDate"?: string, "birthPlace"?: string, "deathDate"?: string, "deathPlace"?: string, "occupation"?: string, "notes"?: string[], "marriageDate"?: string, "marriagePlace"?: string, "divorceDate"?: string, "divorcePlace"?: string, "engagementDate"?: string, "engagementPlace"?: string, "otherParentName"?: string, "pedigree"?: "birth"|"adopted"|"foster"|"sealing", "existingPersonId"?: string (id from the people index, when that person already exists in the tree — then send ONLY the new/changed facts, no name fields) }
+7. DEDUPLICATION: Before returning a NEW person in "relatives", check the people index above — if that person already exists in the tree (same name), return their id as "existingPersonId" and include ONLY the new/changed facts for them (no givenName/surname/sex). Never invent an existingPersonId that is not listed in the index.
 
 Examples:
 1) Input: "נולד ב-1920 בוורשה, היה נגר ונפטר בתש\"ח בירושלים"
    Output: {"birthDate":"1920","birthPlace":"וורשה","occupation":"נגר","deathDate":"1948","deathPlace":"ירושלים"}
 2) Input: "התחתן עם שרה לוי ב-1950 בחיפה, ונולדו להם בן דני ב-1952 ובת רותי ב-1955"
    Output: {"relatives":[{"relation":"wife","givenName":"שרה","surname":"לוי","marriageDate":"1950","marriagePlace":"חיפה"},{"relation":"son","givenName":"דני","birthDate":"1952","otherParentName":"שרה לוי"},{"relation":"daughter","givenName":"רותי","birthDate":"1955","otherParentName":"שרה לוי"}]}
+3) Input: "אשתו של פלוני שמה פלמונית, ובנו אלמוני נולד ב-2022" (neither exists yet)
+   Output: {"relatives":[{"relation":"wife","givenName":"פלמונית"},{"relation":"son","givenName":"אלמוני","birthDate":"2022","otherParentName":"פלמונית"}]}
+4) Same input when "פלמונית" already exists in the tree as @I7@:
+   Output: {"relatives":[{"relation":"wife","existingPersonId":"@I7@"},{"relation":"son","givenName":"אלמוני","birthDate":"2022","otherParentName":"פלמונית"}]}
 
 Current person data in tree:
 ${JSON.stringify(currentInfo, null, 2)}
-${familyBlock}${hebrewHintBlock}
+${familyBlock}${peopleIndexBlock}${hebrewHintBlock}
 User's input text to apply:
 "${String(freeText || '').trim()}"
 
@@ -498,6 +527,17 @@ export async function analyzePersonTextWithAi(
   if (devMode && dropped.length) console.warn('[AI Editor] Ignored empty/unchanged/unknown fields:', dropped);
   parsedJson = cleaned;
 
+  // Deterministic dedup against the tree: drop hallucinated ids and link by
+  // unique name so an already-existing relative is updated, not duplicated.
+  let linkedRelatives = [];
+  if (Array.isArray(parsedJson?.relatives) && parsedJson.relatives.length && data) {
+    const linkResult = linkRelativesToExistingPeople(parsedJson.relatives, data, person?.id || '');
+    linkedRelatives = linkResult.linked;
+    if (devMode && linkedRelatives.length) {
+      console.log('[AI Editor] Linked relatives to existing people:', linkedRelatives);
+    }
+  }
+
   // Deterministic safeguard: if the user wrote a Hebrew calendar date/year (e.g. תשי"ב -> 1952)
   // and a small model still guessed a wrong Gregorian year (e.g. 1944) not present in freeText,
   // replace that guessed date with the exact deterministic Hebrew conversion across focal fields,
@@ -581,5 +621,6 @@ export async function analyzePersonTextWithAi(
     provider: usedProvider,
     warnings,
     repaired: jsonRepaired,
+    linkedRelatives,
   };
 }

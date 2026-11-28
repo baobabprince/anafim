@@ -42,5 +42,14 @@ jobs:
       - name: Run unit tests
         run: npm test
 
+      # Live API coverage for free-text family-member addition. The key comes
+      # from the OPENROUTER_API_KEY repository secret; without it these tests
+      # skip. Non-blocking: free-model API flakiness must not fail CI.
+      - name: Run live OpenRouter AI tests (family addition)
+        continue-on-error: true
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: node --test tests/openrouter-live.test.js
+
       - name: Build production bundle
         run: npm run build
